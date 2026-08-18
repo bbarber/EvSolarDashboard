@@ -221,7 +221,11 @@ web3 = 30
 
 [auth.email]
 # Allow/disallow new user signups via email to your project.
-enable_signup = false
+# NOTE: on hosted projects this maps to the "email provider enabled" switch — false disables
+# email LOGIN entirely (signin, recovery, everything), not just signup. Learned live: the reset
+# form returned email_provider_disabled. Signup is blocked by the global [auth] enable_signup
+# above and, authoritatively, by the allow-list trigger on auth.users.
+enable_signup = true
 # If enabled, a user will be required to confirm any email change on both the old, and new email
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
