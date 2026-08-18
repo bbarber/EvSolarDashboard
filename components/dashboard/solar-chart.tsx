@@ -5,7 +5,7 @@ import {
   type ChargeReadingRow,
   type SolarReadingRow,
 } from '@/lib/data/types';
-import { useMemo, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 /**
  * Today's production and the car's draw on one watts axis — the draw arrives
@@ -19,9 +19,22 @@ export function SolarChart({
   readings: SolarReadingRow[];
   charge: ChargeReadingRow[];
 }) {
-  const W = 720;
+  // The chart draws at the container's real pixel width, so text stays a
+  // readable size on every screen instead of shrinking with a scaled viewBox
+  // (tiny on phones) or forcing a horizontal scroll (hides the afternoon).
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [W, setW] = useState(720);
+  useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() =>
+      setW(Math.max(300, Math.round(el.clientWidth))),
+    );
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const H = 232;
-  const M = { l: 56, r: 12, t: 18, b: 26 };
+  const M = { l: 46, r: 8, t: 18, b: 26 };
   const plotW = W - M.l - M.r;
   const plotH = H - M.t - M.b;
 
@@ -150,7 +163,7 @@ export function SolarChart({
 
   return (
     <figure className="w-full">
-      <div className="flex h-6 items-center justify-between gap-3 pr-1">
+      <div className="flex min-h-6 flex-wrap items-center justify-between gap-x-3 gap-y-1 pr-1">
         <div className="flex gap-2">
           <button
             type="button"
@@ -198,12 +211,14 @@ export function SolarChart({
           )}
         </div>
       </div>
-      <div className="w-full overflow-x-auto">
+      <div ref={wrapRef} className="w-full">
         <svg
           viewBox={`0 0 ${W} ${H}`}
+          width="100%"
+          height={H}
           role="img"
           aria-label="Solar production and car draw today, watts by hour"
-          className="min-w-[560px] touch-none text-muted-foreground"
+          className="touch-none text-muted-foreground"
           onPointerMove={onMove}
           onPointerDown={onMove}
           onPointerLeave={() => setActive(null)}
