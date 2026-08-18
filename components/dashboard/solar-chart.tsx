@@ -1,70 +1,116 @@
 'use client';
 
-import { CONTROLLER_TIME_ZONE, type SolarReadingRow } from '@/lib/data/types';
+import {
+  CONTROLLER_TIME_ZONE,
+  type ChargeReadingRow,
+  type SolarReadingRow,
+} from '@/lib/data/types';
 import { useMemo, useState } from 'react';
 
 /**
- * Today's production, with a touch/hover readout. Client component only for the
- * pointer handling — the data is still fetched on the server and passed down.
+ * Today's production and the car's draw on one watts axis — the draw arrives
+ * from the VM already converted at the real service voltage. Two series, so a
+ * legend exists, and clicking a legend chip toggles its series.
  */
-export function SolarChart({ readings }: { readings: SolarReadingRow[] }) {
+export function SolarChart({
+  readings,
+  charge,
+}: {
+  readings: SolarReadingRow[];
+  charge: ChargeReadingRow[];
+}) {
   const W = 720;
   const H = 232;
   const M = { l: 56, r: 12, t: 18, b: 26 };
   const plotW = W - M.l - M.r;
   const plotH = H - M.t - M.b;
 
-  const maxW = Math.max(4000, ...readings.map((r) => r.watts));
-
-  // The plot spans 6 AM–9 PM: the hours outside it are permanently dark and were
-  // spending 37% of the width saying nothing. Readings can't land outside the
-  // 9–6 polling window, so nothing is clipped.
+  // The plot spans 6 AM–9 PM: the hours outside are permanently dark. Solar cannot land outside
+  // the polling window; charge samples can (an evening manual charge), so those clamp to the edge
+  // rather than vanish.
   const HOUR_MIN = 6;
   const HOUR_MAX = 21;
 
-  const points = useMemo(() => {
-    const hourOf = (iso: string) => {
-      const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: CONTROLLER_TIME_ZONE,
-        hour12: false,
-        hour: 'numeric',
-        minute: 'numeric',
-      }).formatToParts(new Date(iso));
+  const hourOf = useMemo(() => {
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: CONTROLLER_TIME_ZONE,
+      hour12: false,
+      hour: 'numeric',
+      minute: 'numeric',
+    });
+    return (iso: string) => {
+      const parts = fmt.formatToParts(new Date(iso));
       const h = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
       const m = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
       return (h % 24) + m / 60;
     };
-    const label = new Intl.DateTimeFormat('en-US', {
+  }, []);
+
+  const timeLabel = useMemo(() => {
+    const fmt = new Intl.DateTimeFormat('en-US', {
       timeZone: CONTROLLER_TIME_ZONE,
       hour: 'numeric',
       minute: '2-digit',
     });
-    return readings.map((r) => ({
-      h: hourOf(r.reading_at),
-      w: r.watts,
-      amps: r.amps,
-      time: label.format(new Date(r.reading_at)),
-    }));
-  }, [readings]);
+    return (iso: string) => fmt.format(new Date(iso));
+  }, []);
 
-  const [active, setActive] = useState<number | null>(null);
+  const solarPts = useMemo(
+    () =>
+      readings.map((r) => ({
+        h: hourOf(r.reading_at),
+        w: r.watts,
+        amps: r.amps,
+        time: timeLabel(r.reading_at),
+      })),
+    [readings, hourOf, timeLabel],
+  );
+  const chargePts = useMemo(
+    () =>
+      charge.map((r) => ({
+        h: Math.min(Math.max(hourOf(r.reading_at), HOUR_MIN), HOUR_MAX),
+        w: r.watts,
+        amps: r.amps,
+        time: timeLabel(r.reading_at),
+      })),
+    [charge, hourOf, timeLabel],
+  );
+
+  const [showSolar, setShowSolar] = useState(true);
+  const [showCharge, setShowCharge] = useState(true);
+  const [active, setActive] = useState<number | null>(null); // hour * 100 snap key
+
+  const maxW = Math.max(
+    4000,
+    ...(showSolar ? solarPts.map((p) => p.w) : []),
+    ...(showCharge ? chargePts.map((p) => p.w) : []),
+  );
 
   const x = (hour: number) =>
     M.l + ((hour - HOUR_MIN) / (HOUR_MAX - HOUR_MIN)) * plotW;
   const y = (watts: number) => M.t + plotH - (watts / maxW) * plotH;
 
-  const line = points
+  const solarLine = solarPts
     .map(
       (p, i) =>
         `${i === 0 ? 'M' : 'L'} ${x(p.h).toFixed(1)} ${y(p.w).toFixed(1)}`,
     )
     .join(' ');
-  const area =
-    points.length > 0
-      ? `${line} L ${x(points[points.length - 1].h).toFixed(1)} ${y(0)} L ${x(points[0].h).toFixed(1)} ${y(0)} Z`
+  const solarArea =
+    solarPts.length > 0
+      ? `${solarLine} L ${x(solarPts[solarPts.length - 1].h).toFixed(1)} ${y(0)} L ${x(solarPts[0].h).toFixed(1)} ${y(0)} Z`
       : '';
 
-  const gridWatts = [0, 1000, 2000, 3000, 4000].filter((v) => v <= maxW);
+  // Stepped: draw holds its value until the next sample says otherwise.
+  const chargeLine = chargePts
+    .map((p, i, arr) =>
+      i === 0
+        ? `M ${x(p.h).toFixed(1)} ${y(p.w).toFixed(1)}`
+        : `L ${x(p.h).toFixed(1)} ${y(arr[i - 1].w).toFixed(1)} L ${x(p.h).toFixed(1)} ${y(p.w).toFixed(1)}`,
+    )
+    .join(' ');
+
+  const gridWatts = [0, 1000, 2000, 3000, 4000, 5000].filter((v) => v <= maxW);
   const hourTicks = [
     { h: 6, label: '6 AM' },
     { h: 9, label: '9 AM' },
@@ -75,7 +121,6 @@ export function SolarChart({ readings }: { readings: SolarReadingRow[] }) {
   ];
 
   function onMove(e: React.PointerEvent<SVGSVGElement>) {
-    if (points.length === 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const px = ((e.clientX - rect.left) / rect.width) * W;
     const hour = Math.max(
@@ -85,41 +130,79 @@ export function SolarChart({ readings }: { readings: SolarReadingRow[] }) {
         HOUR_MIN + ((px - M.l) / plotW) * (HOUR_MAX - HOUR_MIN),
       ),
     );
-    let best = 0;
-    for (let i = 1; i < points.length; i++) {
-      if (Math.abs(points[i].h - hour) < Math.abs(points[best].h - hour))
-        best = i;
-    }
-    setActive(best);
+    setActive(hour);
   }
 
-  const a = active != null ? points[active] : null;
+  const nearest = <T extends { h: number }>(pts: T[], hour: number | null) => {
+    if (hour == null || pts.length === 0) return null;
+    let best = 0;
+    for (let i = 1; i < pts.length; i++) {
+      if (Math.abs(pts[i].h - hour) < Math.abs(pts[best].h - hour)) best = i;
+    }
+    return pts[best];
+  };
+  const aSolar = showSolar ? nearest(solarPts, active) : null;
+  const aCharge = showCharge ? nearest(chargePts, active) : null;
+  const crosshairAt = aSolar?.h ?? aCharge?.h ?? null;
+
+  const chip = (on: boolean) =>
+    `flex items-center gap-1.5 rounded border px-2 py-0.5 text-xs transition-opacity ${on ? '' : 'opacity-40 line-through'}`;
 
   return (
     <figure className="w-full">
-      <div
-        aria-live="polite"
-        className="flex h-6 items-baseline justify-end gap-3 pr-1 text-sm tabular-nums"
-      >
-        {a ? (
-          <>
-            <span className="text-muted-foreground">{a.time}</span>
-            <span className="font-semibold">
-              {Math.round(a.w).toLocaleString('en-US')} W
+      <div className="flex h-6 items-center justify-between gap-3 pr-1">
+        <div className="flex gap-2">
+          <button
+            type="button"
+            aria-pressed={showSolar}
+            onClick={() => setShowSolar((v) => !v)}
+            className={chip(showSolar)}
+          >
+            <i className="h-2 w-3 rounded-sm bg-primary" aria-hidden />
+            solar
+          </button>
+          <button
+            type="button"
+            aria-pressed={showCharge}
+            onClick={() => setShowCharge((v) => !v)}
+            className={chip(showCharge)}
+          >
+            <i
+              className="h-2 w-3 rounded-sm bg-orange-500 dark:bg-orange-400"
+              aria-hidden
+            />
+            car draw
+          </button>
+        </div>
+        <div
+          aria-live="polite"
+          className="flex items-baseline gap-3 text-sm tabular-nums"
+        >
+          {aSolar && (
+            <span>
+              <span className="text-muted-foreground">{aSolar.time} · </span>
+              <span className="font-semibold">
+                {Math.round(aSolar.w).toLocaleString('en-US')} W
+              </span>
             </span>
-            <span className="text-muted-foreground">{a.amps.toFixed(1)} A</span>
-          </>
-        ) : (
-          <span className="text-xs text-muted-foreground">
-            touch the chart for values
-          </span>
-        )}
+          )}
+          {aCharge && (
+            <span className="text-orange-600 dark:text-orange-400">
+              car {aCharge.amps} A
+            </span>
+          )}
+          {!aSolar && !aCharge && (
+            <span className="text-xs text-muted-foreground">
+              touch the chart for values
+            </span>
+          )}
+        </div>
       </div>
       <div className="w-full overflow-x-auto">
         <svg
           viewBox={`0 0 ${W} ${H}`}
           role="img"
-          aria-label="Solar production today, watts by hour"
+          aria-label="Solar production and car draw today, watts by hour"
           className="min-w-[560px] touch-none text-muted-foreground"
           onPointerMove={onMove}
           onPointerDown={onMove}
@@ -169,46 +252,57 @@ export function SolarChart({ readings }: { readings: SolarReadingRow[] }) {
               {t.label}
             </text>
           ))}
-          {points.length > 0 && (
+          {showSolar && solarPts.length > 0 && (
             <>
-              <path d={area} className="fill-primary/15" />
+              <path d={solarArea} className="fill-primary/15" />
               <path
-                d={line}
+                d={solarLine}
                 className="stroke-primary"
                 strokeWidth="2"
                 fill="none"
                 strokeLinejoin="round"
               />
-              <circle
-                cx={x(points[points.length - 1].h)}
-                cy={y(points[points.length - 1].w)}
-                r="3.5"
-                className="fill-primary stroke-background"
-                strokeWidth="2"
-              />
             </>
           )}
-          {a && (
-            <g>
-              <line
-                x1={x(a.h)}
-                y1={M.t}
-                x2={x(a.h)}
-                y2={M.t + plotH}
-                stroke="currentColor"
-                strokeOpacity="0.5"
-                strokeDasharray="3 3"
-              />
-              <circle
-                cx={x(a.h)}
-                cy={y(a.w)}
-                r="4"
-                className="fill-primary stroke-background"
-                strokeWidth="2"
-              />
-            </g>
+          {showCharge && chargePts.length > 0 && (
+            <path
+              d={chargeLine}
+              className="stroke-orange-500 dark:stroke-orange-400"
+              strokeWidth="2"
+              fill="none"
+              strokeLinejoin="round"
+            />
           )}
-          {points.length === 0 && (
+          {crosshairAt != null && (
+            <line
+              x1={x(crosshairAt)}
+              y1={M.t}
+              x2={x(crosshairAt)}
+              y2={M.t + plotH}
+              stroke="currentColor"
+              strokeOpacity="0.5"
+              strokeDasharray="3 3"
+            />
+          )}
+          {aSolar && (
+            <circle
+              cx={x(aSolar.h)}
+              cy={y(aSolar.w)}
+              r="4"
+              className="fill-primary stroke-background"
+              strokeWidth="2"
+            />
+          )}
+          {aCharge && (
+            <circle
+              cx={x(aCharge.h)}
+              cy={y(aCharge.w)}
+              r="4"
+              className="fill-orange-500 stroke-background dark:fill-orange-400"
+              strokeWidth="2"
+            />
+          )}
+          {solarPts.length === 0 && chargePts.length === 0 && (
             <text
               x={W / 2}
               y={H / 2}
@@ -222,8 +316,8 @@ export function SolarChart({ readings }: { readings: SolarReadingRow[] }) {
         </svg>
       </div>
       <figcaption className="sr-only">
-        Solar production in watts across today; touch or hover for the value at
-        a point in time.
+        Solar production and car draw in watts across today; legend chips toggle
+        each series, touch or hover for values.
       </figcaption>
     </figure>
   );

@@ -2,6 +2,7 @@ import 'server-only';
 import { createClient } from '@/lib/supabase/server';
 import {
   CONTROLLER_TIME_ZONE,
+  type ChargeReadingRow,
   type EventRow,
   type SolarReadingRow,
   type VehicleStatusRow,
@@ -26,10 +27,15 @@ export async function fetchToday() {
   const supabase = await createClient();
   const since = startOfControllerDay().toISOString();
 
-  const [status, solar, events] = await Promise.all([
+  const [status, solar, charge, events] = await Promise.all([
     supabase.from('vehicle_status').select('*').order('vin'),
     supabase
       .from('solar_readings')
+      .select('*')
+      .gte('reading_at', since)
+      .order('reading_at'),
+    supabase
+      .from('charge_readings')
       .select('*')
       .gte('reading_at', since)
       .order('reading_at'),
@@ -44,7 +50,10 @@ export async function fetchToday() {
   return {
     vehicles: (status.data ?? []) as VehicleStatusRow[],
     solar: (solar.data ?? []) as SolarReadingRow[],
+    charge: (charge.data ?? []) as ChargeReadingRow[],
     events: (events.data ?? []) as EventRow[],
-    errors: [status.error, solar.error, events.error].filter(Boolean),
+    errors: [status.error, solar.error, charge.error, events.error].filter(
+      Boolean,
+    ),
   };
 }

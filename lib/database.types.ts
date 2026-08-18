@@ -39,6 +39,27 @@ export type Database = {
   };
   public: {
     Tables: {
+      charge_readings: {
+        Row: {
+          amps: number;
+          reading_at: string;
+          vin: string;
+          watts: number;
+        };
+        Insert: {
+          amps: number;
+          reading_at: string;
+          vin: string;
+          watts: number;
+        };
+        Update: {
+          amps?: number;
+          reading_at?: string;
+          vin?: string;
+          watts?: number;
+        };
+        Relationships: [];
+      };
       events: {
         Row: {
           action: string | null;

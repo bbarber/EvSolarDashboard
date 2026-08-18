@@ -42,3 +42,10 @@ export interface EventRow {
   action: string | null;
   reason: string | null;
 }
+
+export interface ChargeReadingRow {
+  vin: string;
+  reading_at: string;
+  amps: number;
+  watts: number;
+}

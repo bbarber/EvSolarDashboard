@@ -51,7 +51,7 @@ async function DashboardContent() {
     redirect('/auth/login');
   }
 
-  const { vehicles, solar, events, errors } = await fetchToday();
+  const { vehicles, solar, charge, events, errors } = await fetchToday();
   const latest = solar.at(-1);
 
   return (
@@ -85,7 +85,7 @@ async function DashboardContent() {
           </span>
         </CardHeader>
         <CardContent>
-          <SolarChart readings={solar} />
+          <SolarChart readings={solar} charge={charge} />
         </CardContent>
       </Card>
 
