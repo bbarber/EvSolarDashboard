@@ -16,6 +16,12 @@ export function SolarChart({ readings }: { readings: SolarReadingRow[] }) {
 
   const maxW = Math.max(4000, ...readings.map((r) => r.watts));
 
+  // The plot spans 6 AM–9 PM: the hours outside it are permanently dark and were
+  // spending 37% of the width saying nothing. Readings can't land outside the
+  // 9–6 polling window, so nothing is clipped.
+  const HOUR_MIN = 6;
+  const HOUR_MAX = 21;
+
   const points = useMemo(() => {
     const hourOf = (iso: string) => {
       const parts = new Intl.DateTimeFormat('en-US', {
@@ -43,7 +49,8 @@ export function SolarChart({ readings }: { readings: SolarReadingRow[] }) {
 
   const [active, setActive] = useState<number | null>(null);
 
-  const x = (hour: number) => M.l + (hour / 24) * plotW;
+  const x = (hour: number) =>
+    M.l + ((hour - HOUR_MIN) / (HOUR_MAX - HOUR_MIN)) * plotW;
   const y = (watts: number) => M.t + plotH - (watts / maxW) * plotH;
 
   const line = points
@@ -58,7 +65,6 @@ export function SolarChart({ readings }: { readings: SolarReadingRow[] }) {
       : '';
 
   const gridWatts = [0, 1000, 2000, 3000, 4000].filter((v) => v <= maxW);
-  // 12-hour labels; midnight at either end stays unlabeled on purpose.
   const hourTicks = [
     { h: 6, label: '6 AM' },
     { h: 9, label: '9 AM' },
@@ -72,7 +78,13 @@ export function SolarChart({ readings }: { readings: SolarReadingRow[] }) {
     if (points.length === 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const px = ((e.clientX - rect.left) / rect.width) * W;
-    const hour = Math.max(0, Math.min(24, ((px - M.l) / plotW) * 24));
+    const hour = Math.max(
+      HOUR_MIN,
+      Math.min(
+        HOUR_MAX,
+        HOUR_MIN + ((px - M.l) / plotW) * (HOUR_MAX - HOUR_MIN),
+      ),
+    );
     let best = 0;
     for (let i = 1; i < points.length; i++) {
       if (Math.abs(points[i].h - hour) < Math.abs(points[best].h - hour))
