@@ -47,4 +47,5 @@ next-env.d.ts
 /blob-report
 /playwright/.cache
 .env*
+!.env.example
 /.playwright-mcp

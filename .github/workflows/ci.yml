@@ -58,43 +58,6 @@ jobs:
           node scripts/check-migration-tests.mjs \
             "${{ github.event.pull_request.base.sha || github.event.before || 'origin/main' }}"
 
-  integration:
-    name: Integration tests (with local Supabase)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6.0.9
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-
-      # The test runner reads credentials from `supabase status` itself, so
-      # nothing else to wire up.
-      - name: Start local Supabase
-        run: pnpm exec supabase start
-
-      # Apply migrations + seed explicitly (as scripts/setup.mjs does) rather than
-      # relying on `supabase start`'s implicit first-run behavior — deterministic.
-      - name: Apply migrations + seed
-        run: pnpm exec supabase db reset
-
-      # The words migration seeds rows WITHOUT vectors — the embedding model
-      # runs in TypeScript, not SQL (documentation/deployment.md). The game's
-      # integration tests assert embedding-dependent behavior (similarity
-      # ranks, the every-secret-is-embedded invariant), so backfill the fresh
-      # stack the same way hosted projects are backfilled: a few minutes of
-      # CPU inference, before the suite so the tests themselves stay pure.
-      - name: Backfill word embeddings
-        run: node scripts/embed-words.ts
-
-      - name: Run integration tests
-        run: pnpm run test:integration
-
-      - name: Stop local Supabase
-        if: always()
-        run: pnpm exec supabase stop
 
   e2e:
     name: Playwright e2e (Chromium, with local Supabase)

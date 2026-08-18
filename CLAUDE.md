@@ -77,6 +77,31 @@ app runs on the host. Devs bring their own hosted Supabase project for staging/p
     fakes — no real Supabase). Accessors are *generally* exempt from unit tests (testing them
     mostly tests the mocks); add tests only when an accessor grows real logic.
 
+## Before every push — the checks CI enforces
+
+Run these locally and fix what they find; the CI `quality` job runs the same four and a red
+check on main is a bug you shipped to yourself:
+
+```bash
+pnpm run lint          # eslint
+pnpm run typecheck     # tsc --noEmit
+pnpm run test:unit     # vitest
+pnpm run build         # the build catches what tsc alone cannot — e.g. a client
+                       # component importing a runtime value from a server-only module
+```
+
+Formatting is `pnpm run format` (prettier); the pre-commit hook handles staged files, but a
+whole-tree pass avoids CI surprises after scripted edits.
+
+Two traps this repo has already hit, so the checks exist for a reason:
+
+- `tsc` passes while the build fails: client/server boundary violations only surface in
+  `next build`. Anything a `'use client'` component imports must be free of `server-only`
+  modules — shared types and constants live in `lib/data/types.ts` for exactly this.
+- Deleting a feature leaves orphans that typecheck locally but break tooling elsewhere
+  (unused deps with native postinstalls broke the Vercel build; an orphaned integration test
+  broke typecheck). After removing anything, run the full four before pushing.
+
 ## Common commands
 
 | Command | Purpose |
