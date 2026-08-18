@@ -253,6 +253,14 @@ otp_expiry = 3600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
+# Recovery links go through our /auth/confirm route with a token hash, verified server-side.
+# The default template's link only completes in the browser that REQUESTED the reset (PKCE code
+# verifier lives in its cookies) — opening it from a mail app lands sessionless and the password
+# update fails. Token-hash links work from any browser.
+[auth.email.template.recovery]
+subject = "Reset your EvSolar Dashboard password"
+content_path = "./supabase/templates/recovery.html"
+
 # Uncomment to customize email template
 # [auth.email.template.invite]
 # subject = "You have been invited"
