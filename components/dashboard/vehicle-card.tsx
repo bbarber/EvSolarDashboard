@@ -1,10 +1,5 @@
 import { Badge } from '@/components/ui/badge';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { CONTROLLER_TIME_ZONE, type VehicleStatusRow } from '@/lib/data/types';
 
 const NICKNAMES: Record<string, string> = {

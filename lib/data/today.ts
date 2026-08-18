@@ -9,7 +9,6 @@ import {
 
 export * from '@/lib/data/types';
 
-
 export function startOfControllerDay(now = new Date()): Date {
   // en-CA formats as YYYY-MM-DD, which parses unambiguously.
   const day = new Intl.DateTimeFormat('en-CA', {

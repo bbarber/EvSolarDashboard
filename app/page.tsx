@@ -2,12 +2,7 @@ import { AuthButton } from '@/components/auth-button';
 import { EventsList } from '@/components/dashboard/events-list';
 import { SolarChart } from '@/components/dashboard/solar-chart';
 import { VehicleCard } from '@/components/dashboard/vehicle-card';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ThemeSwitcher } from '@/components/theme-switcher';
 import { fetchToday } from '@/lib/data/today';
 import { SITE_NAME } from '@/lib/site';
@@ -61,47 +56,47 @@ async function DashboardContent() {
 
   return (
     <div className="flex w-full max-w-5xl flex-col gap-6 p-5">
-        {errors.length > 0 && (
-          <p className="rounded border border-destructive/40 px-3 py-2 text-sm text-destructive">
-            Some data failed to load; showing what arrived.
-          </p>
+      {errors.length > 0 && (
+        <p className="rounded border border-destructive/40 px-3 py-2 text-sm text-destructive">
+          Some data failed to load; showing what arrived.
+        </p>
+      )}
+
+      <section className="grid gap-4 sm:grid-cols-2">
+        {vehicles.length === 0 ? (
+          <Card>
+            <CardContent className="pt-6 text-sm text-muted-foreground">
+              No vehicle data has been mirrored yet. The VM forwarder fills this
+              in as telemetry arrives.
+            </CardContent>
+          </Card>
+        ) : (
+          vehicles.map((v) => <VehicleCard key={v.vin} vehicle={v} />)
         )}
+      </section>
 
-        <section className="grid gap-4 sm:grid-cols-2">
-          {vehicles.length === 0 ? (
-            <Card>
-              <CardContent className="pt-6 text-sm text-muted-foreground">
-                No vehicle data has been mirrored yet. The VM forwarder fills
-                this in as telemetry arrives.
-              </CardContent>
-            </Card>
-          ) : (
-            vehicles.map((v) => <VehicleCard key={v.vin} vehicle={v} />)
-          )}
-        </section>
+      <Card>
+        <CardHeader className="flex flex-row items-baseline justify-between space-y-0">
+          <CardTitle className="text-base">Solar today</CardTitle>
+          <span className="text-sm tabular-nums text-muted-foreground">
+            {latest
+              ? `${Math.round(latest.watts)} W (${latest.amps.toFixed(1)} A) latest`
+              : 'no readings yet'}
+          </span>
+        </CardHeader>
+        <CardContent>
+          <SolarChart readings={solar} />
+        </CardContent>
+      </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-baseline justify-between space-y-0">
-            <CardTitle className="text-base">Solar today</CardTitle>
-            <span className="text-sm tabular-nums text-muted-foreground">
-              {latest
-                ? `${Math.round(latest.watts)} W (${latest.amps.toFixed(1)} A) latest`
-                : 'no readings yet'}
-            </span>
-          </CardHeader>
-          <CardContent>
-            <SolarChart readings={solar} />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Today&apos;s events</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <EventsList events={events} />
-          </CardContent>
-        </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Today&apos;s events</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <EventsList events={events} />
+        </CardContent>
+      </Card>
     </div>
   );
 }
