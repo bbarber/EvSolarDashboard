@@ -7,6 +7,21 @@ export function normalizeAuthError(error: unknown): string {
   const raw = error instanceof Error ? error.message : '';
   const message = raw.toLowerCase();
 
+  // The safe copy below hides the raw message from the page; keep it findable in the console,
+  // because "Something went wrong" once cost an afternoon of guessing at a password reset.
+  if (raw) console.error('auth error:', raw);
+
+  if (
+    message.includes('auth session missing') ||
+    message.includes('session_not_found') ||
+    message.includes('not logged in')
+  ) {
+    return 'This reset link has expired or was opened in a different browser than the one that requested it. Request a new reset email from this browser.';
+  }
+  if (message.includes('should be different from the old password')) {
+    return 'The new password must differ from the current one.';
+  }
+
   if (message.includes('invalid login credentials')) {
     return 'Incorrect email or password.';
   }
