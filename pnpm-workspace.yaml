@@ -1,0 +1,20 @@
+# pnpm reads workspace-wide settings from this file.
+
+# Force a single postcss version across the tree (tailwind/autoprefixer/next).
+# Keep this range in sync with the postcss devDependency in package.json.
+overrides:
+  postcss: ^8.5.10
+
+# pnpm blocks dependency build scripts by default; allow the ones this setup
+# needs:
+#   - sharp: Next.js production image optimization
+#   - unrs-resolver: ESLint import resolution (eslint-config-next)
+#   - onnxruntime-node + protobufjs: @huggingface/transformers
+#     (scripts/embed-words.ts)
+#   - wordpos: WordNet noun lookups (scripts/generate-puzzles-seed.ts)
+allowBuilds:
+  onnxruntime-node: true
+  protobufjs: true
+  sharp: true
+  unrs-resolver: true
+  wordpos: true

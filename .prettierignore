@@ -1,0 +1,19 @@
+.next/
+out/
+build/
+node_modules/
+coverage/
+playwright-report/
+test-results/
+package-lock.json
+pnpm-lock.yaml
+*.md
+*.sql
+*.toml
+# Supabase CLI artifacts (migrations/seed/config are covered by *.sql / *.toml
+# above). The functions + functions-tests TS is real source — Prettier owns
+# its formatting (deno fmt is disabled; see supabase/functions/deno.json).
+supabase/.temp/
+supabase/.branches/
+# Generated — do not format (written by `pnpm run db:types`).
+supabase/functions/_shared/database.types.ts

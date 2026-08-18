@@ -1,0 +1,10 @@
+{
+  "importMap": "./import_map.json",
+  "tasks": {
+    "check": "deno check */index.ts",
+    "lint": "deno lint"
+  },
+  "fmt": {
+    "exclude": ["."]
+  }
+}

@@ -1,0 +1,7 @@
+{
+  // Scope the Deno language server to the Edge Functions tree so it doesn't
+  // fight the Next.js TypeScript server over the rest of the repo. Inside
+  // supabase/functions the Deno LSP reads deno.json (and its import map);
+  // everywhere else the normal TS server applies.
+  "deno.enablePaths": ["supabase/functions"]
+}

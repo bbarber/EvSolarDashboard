@@ -1,0 +1,5 @@
+{
+  "*.{ts,tsx}": ["eslint --fix --no-warn-ignored", "prettier --write"],
+  "supabase/functions/**/*.ts": ["deno lint -c supabase/functions/deno.json"],
+  "*.{js,mjs,cjs,json,css}": ["prettier --write"]
+}

@@ -1,0 +1,3 @@
+[tools]
+node = "24" # the app
+deno = "2" # supabase/functions (edge functions)

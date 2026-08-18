@@ -1,0 +1,48 @@
+name: E2E nightly (full, incl. iOS)
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # 02:00 UTC daily
+  workflow_dispatch:
+
+jobs:
+  e2e-full:
+    name: Playwright e2e (Chromium + WebKit/iOS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6.0.9
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Bootstrap local Supabase + .env.local
+        run: pnpm run setup
+        env:
+          SKIP_PLAYWRIGHT_INSTALL: '1'
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+
+      - name: Install Playwright (Chromium + WebKit)
+        run: pnpm exec playwright install --with-deps chromium webkit
+
+      - name: Run e2e tests (all projects)
+        run: pnpm run test:e2e
+
+      - name: Stop local Supabase
+        if: always()
+        run: pnpm run db:stop
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

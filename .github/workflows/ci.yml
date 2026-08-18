@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'documentation/**'
+  pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'documentation/**'
+
+jobs:
+  quality:
+    name: Lint, types, unit, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6.0.9
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm run format:check
+      - run: pnpm run typecheck
+      # Edge functions are Deno's world: deno lint + deno check own code
+      # quality there (ESLint/tsc exclude supabase/functions). Their pure
+      # _shared logic is still unit-tested by the Vitest step below.
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: pnpm run functions:lint
+      - run: pnpm run functions:check
+      - run: pnpm run test:unit
+      - name: Build
+        run: pnpm run build
+        env:
+          # No real Supabase creds in this job — skip env validation for the build.
+          SKIP_ENV_VALIDATION: '1'
+
+  migration-tests:
+    name: Migrations have DB tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # need history to diff against the PR base
+      # Coarse, non-blocking backstop: warns if a migration lands with no
+      # integration test. The nuanced "does this migration need a test?" call is
+      # the AI code-review layer's job (see the supabase-migration skill).
+      # Base to diff against: PR base on pull_request, the pre-push tip on push
+      # (so the check stays meaningful for direct pushes to main), else origin/main.
+      - name: Check migrations ship with integration tests
+        run: |
+          node scripts/check-migration-tests.mjs \
+            "${{ github.event.pull_request.base.sha || github.event.before || 'origin/main' }}"
+
+  integration:
+    name: Integration tests (with local Supabase)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6.0.9
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # The test runner reads credentials from `supabase status` itself, so
+      # nothing else to wire up.
+      - name: Start local Supabase
+        run: pnpm exec supabase start
+
+      # Apply migrations + seed explicitly (as scripts/setup.mjs does) rather than
+      # relying on `supabase start`'s implicit first-run behavior — deterministic.
+      - name: Apply migrations + seed
+        run: pnpm exec supabase db reset
+
+      # The words migration seeds rows WITHOUT vectors — the embedding model
+      # runs in TypeScript, not SQL (documentation/deployment.md). The game's
+      # integration tests assert embedding-dependent behavior (similarity
+      # ranks, the every-secret-is-embedded invariant), so backfill the fresh
+      # stack the same way hosted projects are backfilled: a few minutes of
+      # CPU inference, before the suite so the tests themselves stay pure.
+      - name: Backfill word embeddings
+        run: node scripts/embed-words.ts
+
+      - name: Run integration tests
+        run: pnpm run test:integration
+
+      - name: Stop local Supabase
+        if: always()
+        run: pnpm exec supabase stop
+
+  e2e:
+    name: Playwright e2e (Chromium, with local Supabase)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6.0.9
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Reuse the same bootstrap as local dev: starts the local Supabase stack,
+      # writes a valid .env.local (quote-stripped creds), and runs db reset.
+      # next dev (Playwright's webServer) reads .env.local, so the app boots with
+      # real local credentials and env validation passes. Browsers are installed
+      # separately (below) so PR runs only pay for Chromium.
+      - name: Bootstrap local Supabase + .env.local
+        run: pnpm run setup
+        env:
+          SKIP_PLAYWRIGHT_INSTALL: '1'
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+
+      # Chromium only on PR/push. WebKit (iPhone) — with its heavy system deps —
+      # runs nightly in e2e-nightly.yml.
+      - name: Install Playwright (Chromium)
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run e2e tests (desktop)
+        run: pnpm run test:e2e:desktop
+
+      - name: Stop local Supabase
+        if: always()
+        run: pnpm run db:stop
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
