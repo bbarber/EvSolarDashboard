@@ -58,7 +58,6 @@ jobs:
           node scripts/check-migration-tests.mjs \
             "${{ github.event.pull_request.base.sha || github.event.before || 'origin/main' }}"
 
-
   e2e:
     name: Playwright e2e (Chromium, with local Supabase)
     runs-on: ubuntu-latest

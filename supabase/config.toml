@@ -409,10 +409,6 @@ deno_version = 2
 
 # Edge Functions — one block per function. Conventions (verify_jwt posture,
 # the shared import map): CLAUDE.md → Edge Functions.
-[functions.hello-user]
-enabled = true
-verify_jwt = true
-import_map = "./functions/import_map.json"
 
 
 
