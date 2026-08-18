@@ -1,5 +1,5 @@
 import { Badge } from '@/components/ui/badge';
-import { CONTROLLER_TIME_ZONE, type EventRow } from '@/lib/data/today';
+import { CONTROLLER_TIME_ZONE, type EventRow } from '@/lib/data/types';
 
 const KIND_VARIANT: Record<
   string,

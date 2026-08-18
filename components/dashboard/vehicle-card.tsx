@@ -5,7 +5,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { CONTROLLER_TIME_ZONE, type VehicleStatusRow } from '@/lib/data/today';
+import { CONTROLLER_TIME_ZONE, type VehicleStatusRow } from '@/lib/data/types';
 
 const NICKNAMES: Record<string, string> = {
   '5YJ3E1EA3KF428848': 'Tessie',

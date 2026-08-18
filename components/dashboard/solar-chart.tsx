@@ -1,6 +1,6 @@
 'use client';
 
-import { CONTROLLER_TIME_ZONE, type SolarReadingRow } from '@/lib/data/today';
+import { CONTROLLER_TIME_ZONE, type SolarReadingRow } from '@/lib/data/types';
 import { useMemo, useState } from 'react';
 
 /**
