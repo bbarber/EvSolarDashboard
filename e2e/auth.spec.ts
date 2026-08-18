@@ -44,16 +44,21 @@ test('an allow-listed user can log in and see the dashboard', async ({
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
 
   // Allow-list, then create; both idempotent enough for reruns.
-  await request.post(`${supabaseUrl}/rest/v1/private_user_allowlist`, {
-    headers: {
-      apikey: serviceKey,
-      Authorization: `Bearer ${serviceKey}`,
-      'Content-Type': 'application/json',
-      Prefer: 'resolution=ignore-duplicates',
+  const allow = await request.post(
+    `${supabaseUrl}/rest/v1/private_user_allowlist`,
+    {
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=ignore-duplicates',
+      },
+      data: { email: E2E_EMAIL },
     },
-    data: { email: E2E_EMAIL },
-  });
-  await request.post(`${supabaseUrl}/auth/v1/admin/users`, {
+  );
+  expect(allow.ok(), `allowlist insert: ${await allow.text()}`).toBe(true);
+
+  const created = await request.post(`${supabaseUrl}/auth/v1/admin/users`, {
     headers: {
       apikey: serviceKey,
       Authorization: `Bearer ${serviceKey}`,
@@ -61,6 +66,11 @@ test('an allow-listed user can log in and see the dashboard', async ({
     },
     data: { email: E2E_EMAIL, password: E2E_PASSWORD, email_confirm: true },
   });
+  const createdBody = await created.text();
+  expect(
+    created.ok() || createdBody.includes('already been registered'),
+    `admin create: ${createdBody}`,
+  ).toBe(true);
 
   await page.goto('/auth/login');
   await page.getByLabel(/email/i).fill(E2E_EMAIL);

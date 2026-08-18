@@ -26,9 +26,6 @@
     "db:status": "supabase status",
     "db:new": "supabase migration new",
     "db:types": "supabase gen types typescript --local > supabase/functions/_shared/database.types.ts",
-    "functions:serve": "supabase functions serve",
-    "functions:check": "deno task -c supabase/functions/deno.json check",
-    "functions:lint": "deno task -c supabase/functions/deno.json lint",
     "prepare": "husky"
   },
   "dependencies": {
