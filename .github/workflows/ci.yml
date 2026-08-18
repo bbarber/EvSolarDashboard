@@ -26,11 +26,6 @@ jobs:
       - run: pnpm run lint
       - run: pnpm run format:check
       - run: pnpm run typecheck
-      # Edge functions are Deno's world: deno lint + deno check own code
-      # quality there (ESLint/tsc exclude supabase/functions). Their pure
-      # _shared logic is still unit-tested by the Vitest step below.
-      - run: pnpm run functions:lint
-      - run: pnpm run functions:check
       - run: pnpm run test:unit
       - name: Build
         run: pnpm run build

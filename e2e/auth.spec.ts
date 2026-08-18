@@ -72,6 +72,17 @@ test('an allow-listed user can log in and see the dashboard', async ({
     `admin create: ${createdBody}`,
   ).toBe(true);
 
+  // Split "GoTrue rejects the account" from "the form mishandles it": if this direct grant
+  // fails, its body names the real reason; if it passes and the form still fails, the bug is ours.
+  const grant = await request.post(
+    `${supabaseUrl}/auth/v1/token?grant_type=password`,
+    {
+      headers: { apikey: serviceKey, 'Content-Type': 'application/json' },
+      data: { email: E2E_EMAIL, password: E2E_PASSWORD },
+    },
+  );
+  expect(grant.ok(), `direct password grant: ${await grant.text()}`).toBe(true);
+
   await page.goto('/auth/login');
   await page.getByLabel(/email/i).fill(E2E_EMAIL);
   await page.getByLabel(/password/i).fill(E2E_PASSWORD);
