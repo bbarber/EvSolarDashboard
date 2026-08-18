@@ -257,9 +257,13 @@ otp_expiry = 3600
 # The default template's link only completes in the browser that REQUESTED the reset (PKCE code
 # verifier lives in its cookies) — opening it from a mail app lands sessionless and the password
 # update fails. Token-hash links work from any browser.
-[auth.email.template.recovery]
-subject = "Reset your EvSolar Dashboard password"
-content_path = "./supabase/templates/recovery.html"
+# [auth.email.template.recovery] — DISABLED: template modification needs a paid plan or custom
+# SMTP; the push fails outright on the free tier with the default mailer. The template file stays
+# in supabase/templates/recovery.html, ready for the day a custom SMTP provider (e.g. Resend's
+# free tier) is configured. Until then the email-link reset flow only completes in the browser
+# that requested it; change passwords while logged in at /auth/update-password instead.
+# subject = "Reset your EvSolar Dashboard password"
+# content_path = "./supabase/templates/recovery.html"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]
