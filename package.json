@@ -53,7 +53,6 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
-    "@huggingface/transformers": "^4.2.0",
     "@playwright/test": "^1.61.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -76,8 +75,6 @@
     "tailwindcss": "^3.4.1",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5",
-    "vitest": "^4.1.9",
-    "wink-lemmatizer": "^3.0.4",
-    "wordpos": "^2.1.0"
+    "vitest": "^4.1.9"
   }
 }
