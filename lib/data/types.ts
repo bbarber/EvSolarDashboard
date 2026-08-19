@@ -64,28 +64,27 @@ export function vehicleName(vin: string | null): string {
   return VEHICLE_NICKNAMES[vin] ?? vin;
 }
 
-/** Tailwind class fragments per vehicle series on the chart, keyed by VIN. */
-export const VEHICLE_CHART_CLASSES: Record<
-  string,
-  { stroke: string; fill: string; chip: string; text: string }
-> = {
-  '5YJ3E1EA3KF428848': {
-    stroke: 'stroke-orange-500 dark:stroke-orange-400',
-    fill: 'fill-orange-500 dark:fill-orange-400',
-    chip: 'bg-orange-500 dark:bg-orange-400',
-    text: 'text-orange-600 dark:text-orange-400',
-  },
-  '7SAYGDEEXPA069171': {
-    stroke: 'stroke-sky-500 dark:stroke-sky-400',
-    fill: 'fill-sky-500 dark:fill-sky-400',
-    chip: 'bg-sky-500 dark:bg-sky-400',
-    text: 'text-sky-600 dark:text-sky-400',
-  },
+/**
+ * Per-vehicle series colors, keyed by VIN. These are literal values rather than
+ * Tailwind classes because the chart draws to a canvas, which needs a real
+ * color — and because a class name only referenced from here is invisible to
+ * Tailwind's scanner and gets purged from the stylesheet.
+ */
+export interface VehicleColors {
+  light: string;
+  dark: string;
+}
+
+export const VEHICLE_COLORS: Record<string, VehicleColors> = {
+  '5YJ3E1EA3KF428848': { light: '#ea580c', dark: '#fb923c' }, // orange
+  '7SAYGDEEXPA069171': { light: '#0284c7', dark: '#38bdf8' }, // sky
 };
 
-export const FALLBACK_CHART_CLASSES = {
-  stroke: 'stroke-violet-500 dark:stroke-violet-400',
-  fill: 'fill-violet-500 dark:fill-violet-400',
-  chip: 'bg-violet-500 dark:bg-violet-400',
-  text: 'text-violet-600 dark:text-violet-400',
+export const FALLBACK_VEHICLE_COLORS: VehicleColors = {
+  light: '#7c3aed',
+  dark: '#a78bfa',
 };
+
+export function vehicleColors(vin: string): VehicleColors {
+  return VEHICLE_COLORS[vin] ?? FALLBACK_VEHICLE_COLORS;
+}

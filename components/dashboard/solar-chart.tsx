@@ -2,29 +2,80 @@
 
 import {
   CONTROLLER_TIME_ZONE,
-  FALLBACK_CHART_CLASSES,
-  VEHICLE_CHART_CLASSES,
+  vehicleColors,
   vehicleName,
   type ChargeReadingRow,
   type SolarReadingRow,
 } from '@/lib/data/types';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  Chart,
+  Filler,
+  LineController,
+  LineElement,
+  LinearScale,
+  PointElement,
+  type Chart as ChartType,
+  type ChartDataset,
+  type Plugin,
+} from 'chart.js';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+Chart.register(LineController, LineElement, PointElement, LinearScale, Filler);
 
 /**
- * Today's production and each car's draw on one watts axis — the draw arrives
- * from the VM already converted at the real service voltage. One series per
- * vehicle, and clicking a legend chip toggles its series.
+ * Today's production against each car's charge current.
+ *
+ * Two axes on purpose: solar is watts (left), the cars are amps (right). Amps
+ * are what the controller actually commands and what the Tesla app shows, so
+ * plotting the cars in watts made the reader convert in their head to check the
+ * system's work.
+ *
+ * The selected values are reported in a fixed-height row above the plot rather
+ * than a floating tooltip: a tooltip covers the data it describes, and on a
+ * phone it sits under your thumb. The row's height is reserved whether or not a
+ * point is selected, so touching the chart never reflows the page.
  */
 
+const HOUR_MIN = 6;
+const HOUR_MAX = 21;
+
 interface Pt {
-  h: number;
-  w: number;
-  amps: number;
-  time: string;
+  x: number;
+  y: number;
 }
 
-function chartClasses(vin: string) {
-  return VEHICLE_CHART_CLASSES[vin] ?? FALLBACK_CHART_CLASSES;
+interface CarSeries {
+  vin: string;
+  pts: Pt[];
+}
+
+interface Selection {
+  hour: number;
+  solar: Pt | null;
+  cars: { vin: string; pt: Pt }[];
+}
+
+/** Reads a shadcn HSL triplet (`0 0% 3.9%`) into a canvas-usable color. */
+function cssHsl(name: string, alpha = 1): string {
+  if (typeof window === 'undefined') return '#888';
+  const raw = getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim();
+  if (!raw) return '#888';
+  return alpha === 1 ? `hsl(${raw})` : `hsl(${raw} / ${alpha})`;
+}
+
+function nearest(pts: Pt[], hour: number): Pt | null {
+  let best: Pt | null = null;
+  let bestD = Infinity;
+  for (const p of pts) {
+    const d = Math.abs(p.x - hour);
+    if (d < bestD) {
+      bestD = d;
+      best = p;
+    }
+  }
+  return best;
 }
 
 export function SolarChart({
@@ -34,30 +85,11 @@ export function SolarChart({
   readings: SolarReadingRow[];
   charge: ChargeReadingRow[];
 }) {
-  // The chart draws at the container's real pixel width, so text stays a
-  // readable size on every screen instead of shrinking with a scaled viewBox
-  // (tiny on phones) or forcing a horizontal scroll (hides the afternoon).
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const [W, setW] = useState(720);
-  useLayoutEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() =>
-      setW(Math.max(300, Math.round(el.clientWidth))),
-    );
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  const H = 232;
-  const M = { l: 46, r: 8, t: 18, b: 26 };
-  const plotW = W - M.l - M.r;
-  const plotH = H - M.t - M.b;
-
-  // The plot spans 6 AM–9 PM: the hours outside are permanently dark. Solar cannot land outside
-  // the polling window; charge samples can (an evening manual charge), so those clamp to the edge
-  // rather than vanish.
-  const HOUR_MIN = 6;
-  const HOUR_MAX = 21;
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const chartRef = useRef<ChartType | null>(null);
+  const selectionRef = useRef<Selection | null>(null);
+  const [selection, setSelection] = useState<Selection | null>(null);
+  const [isDark, setIsDark] = useState(false);
 
   const hourOf = useMemo(() => {
     const fmt = new Intl.DateTimeFormat('en-US', {
@@ -74,121 +106,293 @@ export function SolarChart({
     };
   }, []);
 
-  const timeLabel = useMemo(() => {
-    const fmt = new Intl.DateTimeFormat('en-US', {
-      timeZone: CONTROLLER_TIME_ZONE,
-      hour: 'numeric',
-      minute: '2-digit',
-    });
-    return (iso: string) => fmt.format(new Date(iso));
-  }, []);
-
-  const solarPts: Pt[] = useMemo(
-    () =>
-      readings.map((r) => ({
-        h: hourOf(r.reading_at),
-        w: r.watts,
-        amps: r.amps,
-        time: timeLabel(r.reading_at),
-      })),
-    [readings, hourOf, timeLabel],
+  const solarPts = useMemo<Pt[]>(
+    () => readings.map((r) => ({ x: hourOf(r.reading_at), y: r.watts })),
+    [readings, hourOf],
   );
 
   // One series per vehicle, in the order each first appears today.
-  const carSeries = useMemo(() => {
+  const carSeries = useMemo<CarSeries[]>(() => {
     const byVin = new Map<string, Pt[]>();
     for (const r of charge) {
-      const pt: Pt = {
-        h: Math.min(Math.max(hourOf(r.reading_at), HOUR_MIN), HOUR_MAX),
-        w: r.watts,
-        amps: r.amps,
-        time: timeLabel(r.reading_at),
+      const pt = {
+        x: Math.min(Math.max(hourOf(r.reading_at), HOUR_MIN), HOUR_MAX),
+        y: r.amps,
       };
       const pts = byVin.get(r.vin);
       if (pts) pts.push(pt);
       else byVin.set(r.vin, [pt]);
     }
     return [...byVin.entries()].map(([vin, pts]) => ({ vin, pts }));
-  }, [charge, hourOf, timeLabel]);
+  }, [charge, hourOf]);
 
   const [showSolar, setShowSolar] = useState(true);
   const [hiddenCars, setHiddenCars] = useState<Record<string, boolean>>({});
-  const carShown = (vin: string) => !hiddenCars[vin];
-  const toggleCar = (vin: string) =>
-    setHiddenCars((prev) => ({ ...prev, [vin]: !prev[vin] }));
+  const carShown = useCallback((vin: string) => !hiddenCars[vin], [hiddenCars]);
 
-  const [active, setActive] = useState<number | null>(null);
-
-  const maxW = Math.max(
-    4000,
-    ...(showSolar ? solarPts.map((p) => p.w) : []),
-    ...carSeries
-      .filter((s) => carShown(s.vin))
-      .flatMap((s) => s.pts.map((p) => p.w)),
+  const shownCars = useMemo(
+    () => carSeries.filter((s) => carShown(s.vin)),
+    [carSeries, carShown],
   );
 
-  const x = (hour: number) =>
-    M.l + ((hour - HOUR_MIN) / (HOUR_MAX - HOUR_MIN)) * plotW;
-  const y = (watts: number) => M.t + plotH - (watts / maxW) * plotH;
-
-  const solarLine = solarPts
-    .map(
-      (p, i) =>
-        `${i === 0 ? 'M' : 'L'} ${x(p.h).toFixed(1)} ${y(p.w).toFixed(1)}`,
-    )
-    .join(' ');
-  const solarArea =
-    solarPts.length > 0
-      ? `${solarLine} L ${x(solarPts[solarPts.length - 1].h).toFixed(1)} ${y(0)} L ${x(solarPts[0].h).toFixed(1)} ${y(0)} Z`
-      : '';
-
-  // Stepped: draw holds its value until the next sample says otherwise.
-  const stepPath = (pts: Pt[]) =>
-    pts
-      .map((p, i, arr) =>
-        i === 0
-          ? `M ${x(p.h).toFixed(1)} ${y(p.w).toFixed(1)}`
-          : `L ${x(p.h).toFixed(1)} ${y(arr[i - 1].w).toFixed(1)} L ${x(p.h).toFixed(1)} ${y(p.w).toFixed(1)}`,
-      )
-      .join(' ');
-
-  const gridWatts = [0, 1000, 2000, 3000, 4000, 5000].filter((v) => v <= maxW);
-  const hourTicks = [
-    { h: 6, label: '6 AM' },
-    { h: 9, label: '9 AM' },
-    { h: 12, label: '12 PM' },
-    { h: 15, label: '3 PM' },
-    { h: 18, label: '6 PM' },
-    { h: 21, label: '9 PM' },
-  ];
-
-  function onMove(e: React.PointerEvent<SVGSVGElement>) {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const px = ((e.clientX - rect.left) / rect.width) * W;
-    const hour = Math.max(
-      HOUR_MIN,
-      Math.min(
-        HOUR_MAX,
-        HOUR_MIN + ((px - M.l) / plotW) * (HOUR_MAX - HOUR_MIN),
+  const maxWatts = useMemo(
+    () =>
+      Math.ceil(
+        Math.max(4000, ...(showSolar ? solarPts.map((p) => p.y) : [])) / 500,
+      ) * 500,
+    [solarPts, showSolar],
+  );
+  const maxAmps = useMemo(
+    () =>
+      Math.max(
+        16,
+        Math.ceil(
+          Math.max(0, ...shownCars.flatMap((s) => s.pts.map((p) => p.y))) / 4,
+        ) * 4,
       ),
-    );
-    setActive(hour);
-  }
+    [shownCars],
+  );
 
-  const nearest = (pts: Pt[], hour: number | null) => {
-    if (hour == null || pts.length === 0) return null;
-    let best = 0;
-    for (let i = 1; i < pts.length; i++) {
-      if (Math.abs(pts[i].h - hour) < Math.abs(pts[best].h - hour)) best = i;
-    }
-    return pts[best];
+  // Track the theme so canvas colors — which cannot come from CSS classes —
+  // follow the toggle and the OS setting.
+  useEffect(() => {
+    const read = () =>
+      setIsDark(document.documentElement.classList.contains('dark'));
+    read();
+    const mo = new MutationObserver(read);
+    mo.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+    return () => mo.disconnect();
+  }, []);
+
+  const timeLabel = useMemo(() => {
+    return (hour: number) => {
+      const h = Math.floor(hour);
+      const m = Math.round((hour - h) * 60);
+      const hh = ((h + 11) % 12) + 1;
+      return `${hh}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+    };
+  }, []);
+
+  const hourLabel = (v: number) => {
+    const h = Math.round(v);
+    if (h === 12) return '12 PM';
+    return h < 12 ? `${h} AM` : `${h - 12} PM`;
   };
-  const aSolar = showSolar ? nearest(solarPts, active) : null;
-  const aCars = carSeries
-    .filter((s) => carShown(s.vin))
-    .map((s) => ({ vin: s.vin, pt: nearest(s.pts, active) }))
-    .filter((a): a is { vin: string; pt: Pt } => a.pt != null);
-  const crosshairAt = aSolar?.h ?? aCars[0]?.pt.h ?? null;
+
+  // The crosshair and dots are drawn from the same selection the readout row
+  // reports, so the mark on the plot and the number above it cannot disagree.
+  const markerPlugin = useMemo<Plugin<'line'>>(
+    () => ({
+      id: 'selectionMarker',
+      afterDatasetsDraw(chart) {
+        const sel = selectionRef.current;
+        if (!sel) return;
+        const { ctx, chartArea: area, scales } = chart;
+        const px = scales.x.getPixelForValue(sel.hour);
+        if (px < area.left || px > area.right) return;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = cssHsl('--muted-foreground', 0.7);
+        ctx.lineWidth = 1;
+        ctx.moveTo(px, area.top);
+        ctx.lineTo(px, area.bottom);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        const halo = cssHsl('--card');
+        const dot = (x: number, y: number, scaleId: string, color: string) => {
+          ctx.beginPath();
+          ctx.arc(
+            scales.x.getPixelForValue(x),
+            scales[scaleId].getPixelForValue(y),
+            4.5,
+            0,
+            Math.PI * 2,
+          );
+          ctx.fillStyle = color;
+          ctx.fill();
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = halo;
+          ctx.stroke();
+        };
+
+        if (sel.solar) {
+          dot(sel.solar.x, sel.solar.y, 'y', cssHsl('--foreground'));
+        }
+        for (const c of sel.cars) {
+          const colors = vehicleColors(c.vin);
+          dot(c.pt.x, c.pt.y, 'yAmps', isDark ? colors.dark : colors.light);
+        }
+        ctx.restore();
+      },
+    }),
+    [isDark],
+  );
+
+  // Build (and rebuild) the chart when the data, visibility or theme changes.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ink = cssHsl('--foreground');
+    const muted = cssHsl('--muted-foreground');
+    const grid = cssHsl('--muted-foreground', 0.2);
+
+    const datasets: ChartDataset<'line', Pt[]>[] = [];
+    if (showSolar) {
+      datasets.push({
+        label: 'Solar',
+        data: solarPts,
+        borderColor: ink,
+        backgroundColor: cssHsl('--foreground', 0.1),
+        fill: 'origin',
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        tension: 0,
+        yAxisID: 'y',
+      });
+    }
+    for (const s of shownCars) {
+      const colors = vehicleColors(s.vin);
+      datasets.push({
+        label: vehicleName(s.vin),
+        data: s.pts,
+        borderColor: isDark ? colors.dark : colors.light,
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        stepped: true,
+        yAxisID: 'yAmps',
+      });
+    }
+
+    const chart = new Chart(canvas, {
+      type: 'line',
+      data: { datasets },
+      plugins: [markerPlugin],
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        // Our own pointer handler owns the selection; Chart.js's hover
+        // highlighting would only ever be a second, disagreeing indicator.
+        hover: { mode: undefined },
+        scales: {
+          x: {
+            type: 'linear',
+            min: HOUR_MIN,
+            max: HOUR_MAX,
+            ticks: {
+              stepSize: 3,
+              callback: (v) => hourLabel(Number(v)),
+              color: muted,
+              font: { size: 10 },
+            },
+            grid: { color: grid },
+            border: { display: false },
+          },
+          y: {
+            position: 'left',
+            min: 0,
+            max: maxWatts,
+            title: {
+              display: true,
+              text: 'watts',
+              color: muted,
+              font: { size: 10 },
+            },
+            ticks: {
+              callback: (v) => Number(v).toLocaleString('en-US'),
+              color: muted,
+              font: { size: 10 },
+            },
+            grid: { color: grid },
+            border: { display: false },
+          },
+          yAmps: {
+            position: 'right',
+            min: 0,
+            max: maxAmps,
+            title: {
+              display: true,
+              text: 'amps',
+              color: muted,
+              font: { size: 10 },
+            },
+            ticks: { color: muted, font: { size: 10 }, stepSize: 4 },
+            grid: { display: false },
+            border: { display: false },
+          },
+        },
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      },
+    });
+
+    chartRef.current = chart;
+    return () => {
+      chart.destroy();
+      chartRef.current = null;
+    };
+  }, [solarPts, shownCars, showSolar, maxWatts, maxAmps, isDark, markerPlugin]);
+
+  // Keep the drawn marker in step with the reported selection.
+  useEffect(() => {
+    selectionRef.current = selection;
+    chartRef.current?.render();
+  }, [selection]);
+
+  const select = useCallback(
+    (clientX: number | null) => {
+      const chart = chartRef.current;
+      if (!chart || clientX == null) {
+        setSelection(null);
+        return;
+      }
+      const rect = chart.canvas.getBoundingClientRect();
+      const hour = chart.scales.x.getValueForPixel(clientX - rect.left);
+      if (hour == null || Number.isNaN(hour)) {
+        setSelection(null);
+        return;
+      }
+
+      // A series is only reported where it actually has data. Reporting the
+      // nearest sample regardless would claim "0 A" hours before a car was
+      // plugged in — a reading the chart never drew.
+      const inSolar =
+        showSolar &&
+        solarPts.length > 0 &&
+        hour >= solarPts[0].x - 0.25 &&
+        hour <= solarPts[solarPts.length - 1].x + 0.25;
+      const solar = inSolar ? nearest(solarPts, hour) : null;
+
+      const cars = shownCars
+        .filter((s) => s.pts.length > 0 && hour >= s.pts[0].x - 0.05)
+        .map((s) => ({ vin: s.vin, pt: nearest(s.pts, hour)! }))
+        .filter((c) => c.pt != null);
+
+      if (!solar && cars.length === 0) {
+        setSelection(null);
+        return;
+      }
+      // The crosshair snaps to the sample being reported rather than tracking
+      // the raw pointer, so the line and the dot name the same point.
+      setSelection({
+        hour: solar ? solar.x : cars[0].pt.x,
+        solar,
+        cars,
+      });
+    },
+    [solarPts, shownCars, showSolar],
+  );
+
+  const onPointer = (e: React.PointerEvent<HTMLCanvasElement>) =>
+    select(e.clientX);
 
   const chip = (on: boolean) =>
     `flex items-center gap-1.5 rounded border px-2 py-0.5 text-xs transition-opacity ${on ? '' : 'opacity-40 line-through'}`;
@@ -203,175 +407,92 @@ export function SolarChart({
             onClick={() => setShowSolar((v) => !v)}
             className={chip(showSolar)}
           >
-            <i className="h-2 w-3 rounded-sm bg-primary" aria-hidden />
+            <i className="h-2 w-3 rounded-sm bg-foreground" aria-hidden />
             solar
           </button>
-          {carSeries.map((s) => (
-            <button
-              key={s.vin}
-              type="button"
-              aria-pressed={carShown(s.vin)}
-              onClick={() => toggleCar(s.vin)}
-              className={chip(carShown(s.vin))}
-            >
-              <i
-                className={`h-2 w-3 rounded-sm ${chartClasses(s.vin).chip}`}
-                aria-hidden
-              />
-              {vehicleName(s.vin)}
-            </button>
-          ))}
-        </div>
-        <div
-          aria-live="polite"
-          className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm tabular-nums"
-        >
-          {aSolar && (
-            <span>
-              <span className="text-muted-foreground">{aSolar.time} · </span>
-              <span className="font-semibold">
-                {Math.round(aSolar.w).toLocaleString('en-US')} W
-              </span>
-            </span>
-          )}
-          {aCars.map((a) => (
-            <span key={a.vin} className={chartClasses(a.vin).text}>
-              {vehicleName(a.vin)} {a.pt.amps} A
-            </span>
-          ))}
-          {!aSolar && aCars.length === 0 && (
-            <span className="text-xs text-muted-foreground">
-              touch the chart for values
-            </span>
-          )}
-        </div>
-      </div>
-      <div ref={wrapRef} className="w-full">
-        <svg
-          viewBox={`0 0 ${W} ${H}`}
-          width="100%"
-          height={H}
-          role="img"
-          aria-label="Solar production and car draw today, watts by hour"
-          className="touch-none text-muted-foreground"
-          onPointerMove={onMove}
-          onPointerDown={onMove}
-          onPointerLeave={() => setActive(null)}
-        >
-          <text x={M.l} y={12} fontSize="11" fill="currentColor">
-            watts
-          </text>
-          <rect
-            x={x(9)}
-            y={M.t}
-            width={x(18) - x(9)}
-            height={plotH}
-            className="fill-muted"
-            rx="2"
-          />
-          {gridWatts.map((v) => (
-            <g key={v}>
-              <line
-                x1={M.l}
-                y1={y(v)}
-                x2={W - M.r}
-                y2={y(v)}
-                stroke="currentColor"
-                strokeOpacity="0.15"
-              />
-              <text
-                x={M.l - 6}
-                y={y(v) + 3}
-                textAnchor="end"
-                fontSize="10"
-                fill="currentColor"
-              >
-                {v.toLocaleString('en-US')}
-              </text>
-            </g>
-          ))}
-          {hourTicks.map((t) => (
-            <text
-              key={t.h}
-              x={x(t.h)}
-              y={H - 8}
-              textAnchor="middle"
-              fontSize="10"
-              fill="currentColor"
-            >
-              {t.label}
-            </text>
-          ))}
-          {showSolar && solarPts.length > 0 && (
-            <>
-              <path d={solarArea} className="fill-primary/15" />
-              <path
-                d={solarLine}
-                className="stroke-primary"
-                strokeWidth="2"
-                fill="none"
-                strokeLinejoin="round"
-              />
-            </>
-          )}
-          {carSeries
-            .filter((s) => carShown(s.vin) && s.pts.length > 0)
-            .map((s) => (
-              <path
+          {carSeries.map((s) => {
+            const colors = vehicleColors(s.vin);
+            return (
+              <button
                 key={s.vin}
-                d={stepPath(s.pts)}
-                className={chartClasses(s.vin).stroke}
-                strokeWidth="2"
-                fill="none"
-                strokeLinejoin="round"
-              />
-            ))}
-          {crosshairAt != null && (
-            <line
-              x1={x(crosshairAt)}
-              y1={M.t}
-              x2={x(crosshairAt)}
-              y2={M.t + plotH}
-              stroke="currentColor"
-              strokeOpacity="0.5"
-              strokeDasharray="3 3"
-            />
-          )}
-          {aSolar && (
-            <circle
-              cx={x(aSolar.h)}
-              cy={y(aSolar.w)}
-              r="4"
-              className="fill-primary stroke-background"
-              strokeWidth="2"
-            />
-          )}
-          {aCars.map((a) => (
-            <circle
-              key={a.vin}
-              cx={x(a.pt.h)}
-              cy={y(a.pt.w)}
-              r="4"
-              className={`${chartClasses(a.vin).fill} stroke-background`}
-              strokeWidth="2"
-            />
-          ))}
-          {solarPts.length === 0 && carSeries.length === 0 && (
-            <text
-              x={W / 2}
-              y={H / 2}
-              textAnchor="middle"
-              fontSize="12"
-              fill="currentColor"
-            >
-              No readings yet today — polling runs 9 AM–6 PM
-            </text>
-          )}
-        </svg>
+                type="button"
+                aria-pressed={carShown(s.vin)}
+                onClick={() =>
+                  setHiddenCars((prev) => ({ ...prev, [s.vin]: !prev[s.vin] }))
+                }
+                className={chip(carShown(s.vin))}
+              >
+                <i
+                  className="h-2 w-3 rounded-sm"
+                  style={{
+                    backgroundColor: isDark ? colors.dark : colors.light,
+                  }}
+                  aria-hidden
+                />
+                {vehicleName(s.vin)}
+              </button>
+            );
+          })}
+        </div>
       </div>
+
+      {/* Height is reserved whether or not a point is selected, so touching the
+          chart never reflows the page under the reader's thumb. */}
+      <div
+        aria-live="polite"
+        className="flex min-h-6 items-baseline gap-3 overflow-hidden whitespace-nowrap text-sm tabular-nums"
+      >
+        {selection ? (
+          <>
+            <span className="text-muted-foreground">
+              {timeLabel(selection.hour)}
+            </span>
+            {selection.solar && (
+              <span className="font-semibold">
+                {Math.round(selection.solar.y).toLocaleString('en-US')} W
+              </span>
+            )}
+            {selection.cars.map((c) => {
+              const colors = vehicleColors(c.vin);
+              return (
+                <span
+                  key={c.vin}
+                  className="font-semibold"
+                  style={{ color: isDark ? colors.dark : colors.light }}
+                >
+                  {vehicleName(c.vin)} {c.pt.y} A
+                </span>
+              );
+            })}
+          </>
+        ) : (
+          <span className="text-xs text-muted-foreground">
+            touch the chart for values
+          </span>
+        )}
+      </div>
+
+      <div className="h-[260px] w-full touch-none select-none">
+        <canvas
+          ref={canvasRef}
+          role="img"
+          aria-label="Solar production in watts and each car's charge current in amps, by hour"
+          onPointerDown={onPointer}
+          onPointerMove={onPointer}
+          onPointerCancel={() => select(null)}
+        />
+      </div>
+
+      {solarPts.length === 0 && carSeries.length === 0 && (
+        <p className="pt-2 text-center text-sm text-muted-foreground">
+          No readings yet today — polling runs 9 AM–6 PM
+        </p>
+      )}
+
       <figcaption className="sr-only">
-        Solar production and each car&apos;s draw in watts across today; legend
-        chips toggle each series, touch or hover for values.
+        Solar production in watts and each car&apos;s charge current in amps
+        across today; legend chips toggle each series, touch or hover for
+        values.
       </figcaption>
     </figure>
   );
