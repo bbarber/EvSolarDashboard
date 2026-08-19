@@ -81,9 +81,11 @@ function nearest(pts: Pt[], hour: number): Pt | null {
 export function SolarChart({
   readings,
   charge,
+  isToday = true,
 }: {
   readings: SolarReadingRow[];
   charge: ChargeReadingRow[];
+  isToday?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<ChartType | null>(null);
@@ -128,10 +130,15 @@ export function SolarChart({
 
   // Telemetry is on-change, so the last sample still describes the car right
   // now — but only up to now. Set after mount so the server and the first
-  // client render agree.
+  // client render agree. A past day has no "now" inside it: the hold runs to
+  // the end of the plotted day.
   const [nowHour, setNowHour] = useState<number | null>(null);
   useEffect(() => {
     const read = () => {
+      if (!isToday) {
+        setNowHour(HOUR_MAX);
+        return;
+      }
       const parts = new Intl.DateTimeFormat('en-US', {
         timeZone: CONTROLLER_TIME_ZONE,
         hour12: false,
@@ -145,7 +152,7 @@ export function SolarChart({
     read();
     const t = setInterval(read, 60_000);
     return () => clearInterval(t);
-  }, []);
+  }, [isToday]);
 
   const [showSolar, setShowSolar] = useState(true);
   const [hiddenCars, setHiddenCars] = useState<Record<string, boolean>>({});
