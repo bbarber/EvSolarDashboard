@@ -1,5 +1,9 @@
 import { Badge } from '@/components/ui/badge';
-import { CONTROLLER_TIME_ZONE, type EventRow } from '@/lib/data/types';
+import {
+  CONTROLLER_TIME_ZONE,
+  vehicleName,
+  type EventRow,
+} from '@/lib/data/types';
 
 const KIND_VARIANT: Record<
   string,
@@ -35,6 +39,11 @@ export function EventsList({ events }: { events: EventRow[] }) {
             {time.format(new Date(e.at))}
           </span>
           <Badge variant={KIND_VARIANT[e.kind] ?? 'outline'}>{e.kind}</Badge>
+          {e.vin && (
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {vehicleName(e.vin)}
+            </span>
+          )}
           <span className="min-w-0">
             {e.action && <span className="font-medium">{e.action}</span>}
             {e.reason && (

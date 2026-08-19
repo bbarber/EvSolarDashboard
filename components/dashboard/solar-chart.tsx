@@ -2,16 +2,31 @@
 
 import {
   CONTROLLER_TIME_ZONE,
+  FALLBACK_CHART_CLASSES,
+  VEHICLE_CHART_CLASSES,
+  vehicleName,
   type ChargeReadingRow,
   type SolarReadingRow,
 } from '@/lib/data/types';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 /**
- * Today's production and the car's draw on one watts axis — the draw arrives
- * from the VM already converted at the real service voltage. Two series, so a
- * legend exists, and clicking a legend chip toggles its series.
+ * Today's production and each car's draw on one watts axis — the draw arrives
+ * from the VM already converted at the real service voltage. One series per
+ * vehicle, and clicking a legend chip toggles its series.
  */
+
+interface Pt {
+  h: number;
+  w: number;
+  amps: number;
+  time: string;
+}
+
+function chartClasses(vin: string) {
+  return VEHICLE_CHART_CLASSES[vin] ?? FALLBACK_CHART_CLASSES;
+}
+
 export function SolarChart({
   readings,
   charge,
@@ -68,7 +83,7 @@ export function SolarChart({
     return (iso: string) => fmt.format(new Date(iso));
   }, []);
 
-  const solarPts = useMemo(
+  const solarPts: Pt[] = useMemo(
     () =>
       readings.map((r) => ({
         h: hourOf(r.reading_at),
@@ -78,25 +93,38 @@ export function SolarChart({
       })),
     [readings, hourOf, timeLabel],
   );
-  const chargePts = useMemo(
-    () =>
-      charge.map((r) => ({
+
+  // One series per vehicle, in the order each first appears today.
+  const carSeries = useMemo(() => {
+    const byVin = new Map<string, Pt[]>();
+    for (const r of charge) {
+      const pt: Pt = {
         h: Math.min(Math.max(hourOf(r.reading_at), HOUR_MIN), HOUR_MAX),
         w: r.watts,
         amps: r.amps,
         time: timeLabel(r.reading_at),
-      })),
-    [charge, hourOf, timeLabel],
-  );
+      };
+      const pts = byVin.get(r.vin);
+      if (pts) pts.push(pt);
+      else byVin.set(r.vin, [pt]);
+    }
+    return [...byVin.entries()].map(([vin, pts]) => ({ vin, pts }));
+  }, [charge, hourOf, timeLabel]);
 
   const [showSolar, setShowSolar] = useState(true);
-  const [showCharge, setShowCharge] = useState(true);
-  const [active, setActive] = useState<number | null>(null); // hour * 100 snap key
+  const [hiddenCars, setHiddenCars] = useState<Record<string, boolean>>({});
+  const carShown = (vin: string) => !hiddenCars[vin];
+  const toggleCar = (vin: string) =>
+    setHiddenCars((prev) => ({ ...prev, [vin]: !prev[vin] }));
+
+  const [active, setActive] = useState<number | null>(null);
 
   const maxW = Math.max(
     4000,
     ...(showSolar ? solarPts.map((p) => p.w) : []),
-    ...(showCharge ? chargePts.map((p) => p.w) : []),
+    ...carSeries
+      .filter((s) => carShown(s.vin))
+      .flatMap((s) => s.pts.map((p) => p.w)),
   );
 
   const x = (hour: number) =>
@@ -115,13 +143,14 @@ export function SolarChart({
       : '';
 
   // Stepped: draw holds its value until the next sample says otherwise.
-  const chargeLine = chargePts
-    .map((p, i, arr) =>
-      i === 0
-        ? `M ${x(p.h).toFixed(1)} ${y(p.w).toFixed(1)}`
-        : `L ${x(p.h).toFixed(1)} ${y(arr[i - 1].w).toFixed(1)} L ${x(p.h).toFixed(1)} ${y(p.w).toFixed(1)}`,
-    )
-    .join(' ');
+  const stepPath = (pts: Pt[]) =>
+    pts
+      .map((p, i, arr) =>
+        i === 0
+          ? `M ${x(p.h).toFixed(1)} ${y(p.w).toFixed(1)}`
+          : `L ${x(p.h).toFixed(1)} ${y(arr[i - 1].w).toFixed(1)} L ${x(p.h).toFixed(1)} ${y(p.w).toFixed(1)}`,
+      )
+      .join(' ');
 
   const gridWatts = [0, 1000, 2000, 3000, 4000, 5000].filter((v) => v <= maxW);
   const hourTicks = [
@@ -146,7 +175,7 @@ export function SolarChart({
     setActive(hour);
   }
 
-  const nearest = <T extends { h: number }>(pts: T[], hour: number | null) => {
+  const nearest = (pts: Pt[], hour: number | null) => {
     if (hour == null || pts.length === 0) return null;
     let best = 0;
     for (let i = 1; i < pts.length; i++) {
@@ -155,8 +184,11 @@ export function SolarChart({
     return pts[best];
   };
   const aSolar = showSolar ? nearest(solarPts, active) : null;
-  const aCharge = showCharge ? nearest(chargePts, active) : null;
-  const crosshairAt = aSolar?.h ?? aCharge?.h ?? null;
+  const aCars = carSeries
+    .filter((s) => carShown(s.vin))
+    .map((s) => ({ vin: s.vin, pt: nearest(s.pts, active) }))
+    .filter((a): a is { vin: string; pt: Pt } => a.pt != null);
+  const crosshairAt = aSolar?.h ?? aCars[0]?.pt.h ?? null;
 
   const chip = (on: boolean) =>
     `flex items-center gap-1.5 rounded border px-2 py-0.5 text-xs transition-opacity ${on ? '' : 'opacity-40 line-through'}`;
@@ -164,7 +196,7 @@ export function SolarChart({
   return (
     <figure className="w-full">
       <div className="flex min-h-6 flex-wrap items-center justify-between gap-x-3 gap-y-1 pr-1">
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
             aria-pressed={showSolar}
@@ -174,22 +206,25 @@ export function SolarChart({
             <i className="h-2 w-3 rounded-sm bg-primary" aria-hidden />
             solar
           </button>
-          <button
-            type="button"
-            aria-pressed={showCharge}
-            onClick={() => setShowCharge((v) => !v)}
-            className={chip(showCharge)}
-          >
-            <i
-              className="h-2 w-3 rounded-sm bg-orange-500 dark:bg-orange-400"
-              aria-hidden
-            />
-            car draw
-          </button>
+          {carSeries.map((s) => (
+            <button
+              key={s.vin}
+              type="button"
+              aria-pressed={carShown(s.vin)}
+              onClick={() => toggleCar(s.vin)}
+              className={chip(carShown(s.vin))}
+            >
+              <i
+                className={`h-2 w-3 rounded-sm ${chartClasses(s.vin).chip}`}
+                aria-hidden
+              />
+              {vehicleName(s.vin)}
+            </button>
+          ))}
         </div>
         <div
           aria-live="polite"
-          className="flex items-baseline gap-3 text-sm tabular-nums"
+          className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm tabular-nums"
         >
           {aSolar && (
             <span>
@@ -199,12 +234,12 @@ export function SolarChart({
               </span>
             </span>
           )}
-          {aCharge && (
-            <span className="text-orange-600 dark:text-orange-400">
-              car {aCharge.amps} A
+          {aCars.map((a) => (
+            <span key={a.vin} className={chartClasses(a.vin).text}>
+              {vehicleName(a.vin)} {a.pt.amps} A
             </span>
-          )}
-          {!aSolar && !aCharge && (
+          ))}
+          {!aSolar && aCars.length === 0 && (
             <span className="text-xs text-muted-foreground">
               touch the chart for values
             </span>
@@ -279,15 +314,18 @@ export function SolarChart({
               />
             </>
           )}
-          {showCharge && chargePts.length > 0 && (
-            <path
-              d={chargeLine}
-              className="stroke-orange-500 dark:stroke-orange-400"
-              strokeWidth="2"
-              fill="none"
-              strokeLinejoin="round"
-            />
-          )}
+          {carSeries
+            .filter((s) => carShown(s.vin) && s.pts.length > 0)
+            .map((s) => (
+              <path
+                key={s.vin}
+                d={stepPath(s.pts)}
+                className={chartClasses(s.vin).stroke}
+                strokeWidth="2"
+                fill="none"
+                strokeLinejoin="round"
+              />
+            ))}
           {crosshairAt != null && (
             <line
               x1={x(crosshairAt)}
@@ -308,16 +346,17 @@ export function SolarChart({
               strokeWidth="2"
             />
           )}
-          {aCharge && (
+          {aCars.map((a) => (
             <circle
-              cx={x(aCharge.h)}
-              cy={y(aCharge.w)}
+              key={a.vin}
+              cx={x(a.pt.h)}
+              cy={y(a.pt.w)}
               r="4"
-              className="fill-orange-500 stroke-background dark:fill-orange-400"
+              className={`${chartClasses(a.vin).fill} stroke-background`}
               strokeWidth="2"
             />
-          )}
-          {solarPts.length === 0 && chargePts.length === 0 && (
+          ))}
+          {solarPts.length === 0 && carSeries.length === 0 && (
             <text
               x={W / 2}
               y={H / 2}
@@ -331,8 +370,8 @@ export function SolarChart({
         </svg>
       </div>
       <figcaption className="sr-only">
-        Solar production and car draw in watts across today; legend chips toggle
-        each series, touch or hover for values.
+        Solar production and each car&apos;s draw in watts across today; legend
+        chips toggle each series, touch or hover for values.
       </figcaption>
     </figure>
   );

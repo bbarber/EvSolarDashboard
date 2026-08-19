@@ -1,11 +1,10 @@
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { CONTROLLER_TIME_ZONE, type VehicleStatusRow } from '@/lib/data/types';
-
-const NICKNAMES: Record<string, string> = {
-  '5YJ3E1EA3KF428848': 'Tessie',
-  '7SAYGDEEXPA069171': 'Bessie',
-};
+import {
+  CONTROLLER_TIME_ZONE,
+  vehicleName,
+  type VehicleStatusRow,
+} from '@/lib/data/types';
 
 function timeIn(tz: string, iso: string) {
   return new Intl.DateTimeFormat('en-US', {
@@ -16,7 +15,7 @@ function timeIn(tz: string, iso: string) {
 }
 
 export function VehicleCard({ vehicle }: { vehicle: VehicleStatusRow }) {
-  const name = NICKNAMES[vehicle.vin] ?? vehicle.vin;
+  const name = vehicleName(vehicle.vin);
   const charging = vehicle.charging_state === 'Charging';
 
   return (
