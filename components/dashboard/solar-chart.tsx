@@ -355,11 +355,15 @@ export function SolarChart({
         return;
       }
       const rect = chart.canvas.getBoundingClientRect();
-      const hour = chart.scales.x.getValueForPixel(clientX - rect.left);
-      if (hour == null || Number.isNaN(hour)) {
+      const raw = chart.scales.x.getValueForPixel(clientX - rect.left);
+      if (raw == null || Number.isNaN(raw)) {
         setSelection(null);
         return;
       }
+      // The canvas is wider than the plot — the axes own the margins — so a
+      // touch in the gutter maps past the domain and would report a time the
+      // chart never plots, with no marker to match it.
+      const hour = Math.min(Math.max(raw, HOUR_MIN), HOUR_MAX);
 
       // A series is only reported where it actually has data. Reporting the
       // nearest sample regardless would claim "0 A" hours before a car was
