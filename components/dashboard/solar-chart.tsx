@@ -126,13 +126,43 @@ export function SolarChart({
     return [...byVin.entries()].map(([vin, pts]) => ({ vin, pts }));
   }, [charge, hourOf]);
 
+  // Telemetry is on-change, so the last sample still describes the car right
+  // now — but only up to now. Set after mount so the server and the first
+  // client render agree.
+  const [nowHour, setNowHour] = useState<number | null>(null);
+  useEffect(() => {
+    const read = () => {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: CONTROLLER_TIME_ZONE,
+        hour12: false,
+        hour: 'numeric',
+        minute: 'numeric',
+      }).formatToParts(new Date());
+      const h = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
+      const m = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
+      setNowHour(Math.min(Math.max((h % 24) + m / 60, HOUR_MIN), HOUR_MAX));
+    };
+    read();
+    const t = setInterval(read, 60_000);
+    return () => clearInterval(t);
+  }, []);
+
   const [showSolar, setShowSolar] = useState(true);
   const [hiddenCars, setHiddenCars] = useState<Record<string, boolean>>({});
   const carShown = useCallback((vin: string) => !hiddenCars[vin], [hiddenCars]);
 
+  // Carry each series forward to now, so the drawn line covers every moment the
+  // readout is willing to report a value for.
   const shownCars = useMemo(
-    () => carSeries.filter((s) => carShown(s.vin)),
-    [carSeries, carShown],
+    () =>
+      carSeries
+        .filter((s) => carShown(s.vin))
+        .map((s) => {
+          const last = s.pts[s.pts.length - 1];
+          if (nowHour == null || !last || last.x >= nowHour) return s;
+          return { vin: s.vin, pts: [...s.pts, { x: nowHour, y: last.y }] };
+        }),
+    [carSeries, carShown, nowHour],
   );
 
   const maxWatts = useMemo(
@@ -386,6 +416,8 @@ export function SolarChart({
       // held value belongs at the time being asked about.
       const cars = shownCars
         .map((s) => {
+          const last = s.pts[s.pts.length - 1];
+          if (!last || at > last.x + 1e-6) return null; // beyond the drawn line
           let held: Pt | null = null;
           for (const p of s.pts) {
             if (p.x <= at + 1e-6) held = p;
