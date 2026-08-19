@@ -369,24 +369,33 @@ export function SolarChart({
         solarPts.length > 0 &&
         hour >= solarPts[0].x - 0.25 &&
         hour <= solarPts[solarPts.length - 1].x + 0.25;
-      const solar = inSolar ? nearest(solarPts, hour) : null;
+      const solarSample = inSolar ? nearest(solarPts, hour) : null;
 
+      // Solar is sampled every ~20 minutes, so the crosshair snaps to a reading
+      // and "selecting a point" means something exact. With no solar in range
+      // it follows the pointer instead.
+      const at = solarSample ? solarSample.x : hour;
+
+      // The car line is stepped: its value at a moment is the last sample at or
+      // before it, held. Drawing the dot on the sample's own time would fling
+      // the marker hours away from the crosshair once a session ended — the
+      // held value belongs at the time being asked about.
       const cars = shownCars
-        .filter((s) => s.pts.length > 0 && hour >= s.pts[0].x - 0.05)
-        .map((s) => ({ vin: s.vin, pt: nearest(s.pts, hour)! }))
-        .filter((c) => c.pt != null);
+        .map((s) => {
+          let held: Pt | null = null;
+          for (const p of s.pts) {
+            if (p.x <= at + 1e-6) held = p;
+            else break;
+          }
+          return held ? { vin: s.vin, pt: { x: at, y: held.y } } : null;
+        })
+        .filter((c): c is { vin: string; pt: Pt } => c != null);
 
-      if (!solar && cars.length === 0) {
+      if (!solarSample && cars.length === 0) {
         setSelection(null);
         return;
       }
-      // The crosshair snaps to the sample being reported rather than tracking
-      // the raw pointer, so the line and the dot name the same point.
-      setSelection({
-        hour: solar ? solar.x : cars[0].pt.x,
-        solar,
-        cars,
-      });
+      setSelection({ hour: at, solar: solarSample, cars });
     },
     [solarPts, shownCars, showSolar],
   );
