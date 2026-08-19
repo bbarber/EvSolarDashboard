@@ -44,7 +44,7 @@ export function EventsList({ events }: { events: EventRow[] }) {
               {vehicleName(e.vin)}
             </span>
           )}
-          <span className="min-w-0">
+          <span className="min-w-0 break-words">
             {e.action && <span className="font-medium">{e.action}</span>}
             {e.reason && (
               <span className="text-muted-foreground"> — {e.reason}</span>
