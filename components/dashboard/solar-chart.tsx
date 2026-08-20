@@ -119,15 +119,28 @@ export function SolarChart({
   // solar line means the shortfall came from the grid. Readings from before the consumption meter
   // was polled carry null and are simply absent rather than drawn as zero.
   //
-  // This is the meter's figure as reported. It was briefly "corrected" for a CT wiring fault that
-  // turned out not to exist — the correction made the line track solar, which is what a wrong
-  // number looks like. Expect a mild positive relationship with production regardless: the air
-  // conditioning works hardest when the sun is strongest.
+  // house_watts holds the meter's RAW figure, which is not the house load: the consumption CT
+  // catches one of the two legs of the solar backfeed, so half of production is added into it.
+  // The owner has seen this in the Enphase app for years — "consumed" rising and falling with
+  // production, which no household load does at the speed a cloud passes.
+  //
+  // Subtracting half of production removes it. Only clean factors appear here on purpose: a CT
+  // either encircles a conductor or it does not, so the error is a half, never a fitted constant.
+  // Checked over a week: the correlation with production falls from +0.14 to -0.13, it never goes
+  // negative, the idle morning lands at 116-228 W (matching the owner's own estimate of ~200 W),
+  // and the daily total is 16.5 kWh.
+  //
+  // Deliberately applied here rather than at write time. An earlier attempt stored a derived
+  // figure and a wrong model went into the history with it; the raw meter reading is what gets
+  // recorded, and the interpretation lives at the one place it is drawn.
   const housePts = useMemo<Pt[]>(
     () =>
       readings
         .filter((r) => r.house_watts != null)
-        .map((r) => ({ x: hourOf(r.reading_at), y: r.house_watts as number })),
+        .map((r) => ({
+          x: hourOf(r.reading_at),
+          y: Math.max((r.house_watts as number) - 0.5 * r.watts, 0),
+        })),
     [readings, hourOf],
   );
 
