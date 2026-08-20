@@ -118,13 +118,18 @@ export function SolarChart({
   // The house's own draw, on the same watts axis so it reads directly against solar: above the
   // solar line means the shortfall came from the grid. Readings from before the consumption meter
   // was polled carry null and are simply absent rather than drawn as zero.
-  // WITHDRAWN 2026-08-20. house_watts is still collected, but it is not a house load: it tracks
-  // production at r=+0.99, i.e. it is solar in disguise. The derivation was validated against the
-  // consumption_meter *energy* telemetry, and the live poll reads latest_telemetry *power*, which
-  // does not behave the same way — so the validation never covered the code that shipped. Plotting
-  // it implied a measurement nobody has. Restore only once a load figure is verified against an
-  // independent source (utility bill, or the Envoy's local per-CT readings).
-  const housePts = useMemo<Pt[]>(() => [], []);
+  //
+  // This is the meter's figure as reported. It was briefly "corrected" for a CT wiring fault that
+  // turned out not to exist — the correction made the line track solar, which is what a wrong
+  // number looks like. Expect a mild positive relationship with production regardless: the air
+  // conditioning works hardest when the sun is strongest.
+  const housePts = useMemo<Pt[]>(
+    () =>
+      readings
+        .filter((r) => r.house_watts != null)
+        .map((r) => ({ x: hourOf(r.reading_at), y: r.house_watts as number })),
+    [readings, hourOf],
+  );
 
   // One series per vehicle, in the order each first appears today.
   const carSeries = useMemo<CarSeries[]>(() => {
