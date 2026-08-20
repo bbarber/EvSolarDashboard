@@ -1,6 +1,7 @@
 import { AuthButton } from '@/components/auth-button';
 import { DayNav } from '@/components/dashboard/day-nav';
 import { EventsList } from '@/components/dashboard/events-list';
+import { RefreshButton } from '@/components/dashboard/refresh-button';
 import { SolarChart } from '@/components/dashboard/solar-chart';
 import { VehicleCard } from '@/components/dashboard/vehicle-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -28,6 +29,7 @@ export default function Home({
             {SITE_NAME}
           </Link>
           <div className="flex min-w-0 items-center gap-3">
+            <RefreshButton />
             <ThemeSwitcher />
             <Suspense>
               <AuthButton />
