@@ -204,27 +204,33 @@ export function SolarChart({
     [carSeries, carShown, nowHour],
   );
 
-  const maxWatts = useMemo(
-    () =>
-      Math.ceil(
-        Math.max(
-          4000,
-          ...(showSolar ? solarPts.map((p) => p.y) : []),
-          ...(showHouse ? housePts.map((p) => p.y) : []),
-        ) / 500,
-      ) * 500,
-    [solarPts, housePts, showSolar, showHouse],
-  );
-  const maxAmps = useMemo(
-    () =>
-      Math.max(
-        16,
-        Math.ceil(
-          Math.max(0, ...shownCars.flatMap((s) => s.pts.map((p) => p.y))) / 4,
-        ) * 4,
-      ),
-    [shownCars],
-  );
+  // The two axes are locked to the same number of divisions so their gridlines
+  // coincide: one horizontal rule means both a round watt value and a round amp
+  // value. Steps of 1000 W and 4 A pair naturally (4000 W against 16 A, the
+  // array's working range against the connector's), and both scales grow in
+  // whole divisions together rather than independently.
+  const { maxWatts, maxAmps, axisTicks } = useMemo(() => {
+    const WATT_STEP = 1000;
+    const AMP_STEP = 4;
+    const peakWatts = Math.max(
+      4000,
+      ...(showSolar ? solarPts.map((p) => p.y) : []),
+      ...(showHouse ? housePts.map((p) => p.y) : []),
+    );
+    const peakAmps = Math.max(
+      16,
+      ...shownCars.flatMap((s) => s.pts.map((p) => p.y)),
+    );
+    const divisions = Math.max(
+      Math.ceil(peakWatts / WATT_STEP),
+      Math.ceil(peakAmps / AMP_STEP),
+    );
+    return {
+      maxWatts: divisions * WATT_STEP,
+      maxAmps: divisions * AMP_STEP,
+      axisTicks: divisions + 1,
+    };
+  }, [solarPts, housePts, shownCars, showSolar, showHouse]);
 
   // Track the theme so canvas colors — which cannot come from CSS classes —
   // follow the toggle and the OS setting.
@@ -440,6 +446,7 @@ export function SolarChart({
     showHouse,
     maxWatts,
     maxAmps,
+    axisTicks,
     isDark,
     markerPlugin,
   ]);
