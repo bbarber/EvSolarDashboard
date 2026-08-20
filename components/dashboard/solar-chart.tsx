@@ -2,6 +2,7 @@
 
 import {
   CONTROLLER_TIME_ZONE,
+  HOUSE_COLORS,
   vehicleColors,
   vehicleName,
   type ChargeReadingRow,
@@ -52,6 +53,7 @@ interface CarSeries {
 interface Selection {
   hour: number;
   solar: Pt | null;
+  house: Pt | null;
   cars: { vin: string; pt: Pt }[];
 }
 
@@ -113,6 +115,17 @@ export function SolarChart({
     [readings, hourOf],
   );
 
+  // The house's own draw, on the same watts axis so it reads directly against solar: above the
+  // solar line means the shortfall came from the grid. Readings from before the consumption meter
+  // was polled carry null and are simply absent rather than drawn as zero.
+  const housePts = useMemo<Pt[]>(
+    () =>
+      readings
+        .filter((r) => r.house_watts != null)
+        .map((r) => ({ x: hourOf(r.reading_at), y: r.house_watts as number })),
+    [readings, hourOf],
+  );
+
   // One series per vehicle, in the order each first appears today.
   const carSeries = useMemo<CarSeries[]>(() => {
     const byVin = new Map<string, Pt[]>();
@@ -155,6 +168,7 @@ export function SolarChart({
   }, [isToday]);
 
   const [showSolar, setShowSolar] = useState(true);
+  const [showHouse, setShowHouse] = useState(true);
   const [hiddenCars, setHiddenCars] = useState<Record<string, boolean>>({});
   const carShown = useCallback((vin: string) => !hiddenCars[vin], [hiddenCars]);
 
@@ -175,9 +189,13 @@ export function SolarChart({
   const maxWatts = useMemo(
     () =>
       Math.ceil(
-        Math.max(4000, ...(showSolar ? solarPts.map((p) => p.y) : [])) / 500,
+        Math.max(
+          4000,
+          ...(showSolar ? solarPts.map((p) => p.y) : []),
+          ...(showHouse ? housePts.map((p) => p.y) : []),
+        ) / 500,
       ) * 500,
-    [solarPts, showSolar],
+    [solarPts, housePts, showSolar, showHouse],
   );
   const maxAmps = useMemo(
     () =>
@@ -261,6 +279,14 @@ export function SolarChart({
         if (sel.solar) {
           dot(sel.solar.x, sel.solar.y, 'y', cssHsl('--foreground'));
         }
+        if (sel.house) {
+          dot(
+            sel.house.x,
+            sel.house.y,
+            'y',
+            isDark ? HOUSE_COLORS.dark : HOUSE_COLORS.light,
+          );
+        }
         for (const c of sel.cars) {
           const colors = vehicleColors(c.vin);
           dot(c.pt.x, c.pt.y, 'yAmps', isDark ? colors.dark : colors.light);
@@ -288,6 +314,18 @@ export function SolarChart({
         borderColor: ink,
         backgroundColor: cssHsl('--foreground', 0.1),
         fill: 'origin',
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        tension: 0,
+        yAxisID: 'y',
+      });
+    }
+    if (showHouse && housePts.length > 0) {
+      datasets.push({
+        label: 'House',
+        data: housePts,
+        borderColor: isDark ? HOUSE_COLORS.dark : HOUSE_COLORS.light,
         borderWidth: 2,
         pointRadius: 0,
         pointHoverRadius: 0,
@@ -376,7 +414,17 @@ export function SolarChart({
       chart.destroy();
       chartRef.current = null;
     };
-  }, [solarPts, shownCars, showSolar, maxWatts, maxAmps, isDark, markerPlugin]);
+  }, [
+    solarPts,
+    housePts,
+    shownCars,
+    showSolar,
+    showHouse,
+    maxWatts,
+    maxAmps,
+    isDark,
+    markerPlugin,
+  ]);
 
   // Keep the drawn marker in step with the reported selection.
   useEffect(() => {
@@ -417,6 +465,15 @@ export function SolarChart({
       // it follows the pointer instead.
       const at = solarSample ? solarSample.x : hour;
 
+      // House load shares the solar reading's timestamp — both come from one
+      // meter call — so it is reported at the snapped time, not the raw pointer.
+      const inHouse =
+        showHouse &&
+        housePts.length > 0 &&
+        at >= housePts[0].x - 0.25 &&
+        at <= housePts[housePts.length - 1].x + 0.25;
+      const house = inHouse ? nearest(housePts, at) : null;
+
       // The car line is stepped: its value at a moment is the last sample at or
       // before it, held. Drawing the dot on the sample's own time would fling
       // the marker hours away from the crosshair once a session ended — the
@@ -434,13 +491,13 @@ export function SolarChart({
         })
         .filter((c): c is { vin: string; pt: Pt } => c != null);
 
-      if (!solarSample && cars.length === 0) {
+      if (!solarSample && !house && cars.length === 0) {
         setSelection(null);
         return;
       }
-      setSelection({ hour: at, solar: solarSample, cars });
+      setSelection({ hour: at, solar: solarSample, house, cars });
     },
-    [solarPts, shownCars, showSolar],
+    [solarPts, housePts, shownCars, showSolar, showHouse],
   );
 
   const onPointer = (e: React.PointerEvent<HTMLCanvasElement>) =>
@@ -460,8 +517,27 @@ export function SolarChart({
             className={chip(showSolar)}
           >
             <i className="h-2 w-3 rounded-sm bg-foreground" aria-hidden />
-            solar
+            Solar
           </button>
+          {housePts.length > 0 && (
+            <button
+              type="button"
+              aria-pressed={showHouse}
+              onClick={() => setShowHouse((v) => !v)}
+              className={chip(showHouse)}
+            >
+              <i
+                className="h-2 w-3 rounded-sm"
+                style={{
+                  backgroundColor: isDark
+                    ? HOUSE_COLORS.dark
+                    : HOUSE_COLORS.light,
+                }}
+                aria-hidden
+              />
+              House
+            </button>
+          )}
           {carSeries.map((s) => {
             const colors = vehicleColors(s.vin);
             return (
@@ -504,6 +580,16 @@ export function SolarChart({
                 {Math.round(selection.solar.y).toLocaleString('en-US')} W
               </span>
             )}
+            {selection.house && (
+              <span
+                className="font-semibold"
+                style={{
+                  color: isDark ? HOUSE_COLORS.dark : HOUSE_COLORS.light,
+                }}
+              >
+                house {Math.round(selection.house.y).toLocaleString('en-US')} W
+              </span>
+            )}
             {selection.cars.map((c) => {
               const colors = vehicleColors(c.vin);
               return (
@@ -535,11 +621,13 @@ export function SolarChart({
         />
       </div>
 
-      {solarPts.length === 0 && carSeries.length === 0 && (
-        <p className="pt-2 text-center text-sm text-muted-foreground">
-          No readings yet today — polling runs 9 AM–6 PM
-        </p>
-      )}
+      {solarPts.length === 0 &&
+        housePts.length === 0 &&
+        carSeries.length === 0 && (
+          <p className="pt-2 text-center text-sm text-muted-foreground">
+            No readings yet today — polling runs 9 AM–6 PM
+          </p>
+        )}
 
       <figcaption className="sr-only">
         Solar production in watts and each car&apos;s charge current in amps

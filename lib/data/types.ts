@@ -32,6 +32,8 @@ export interface SolarReadingRow {
   reading_at: string;
   watts: number;
   amps: number;
+  /** The house's own load in watts, null for readings taken before it was measured. */
+  house_watts: number | null;
 }
 
 export interface EventRow {
@@ -78,6 +80,12 @@ export interface VehicleColors {
 export const VEHICLE_COLORS: Record<string, VehicleColors> = {
   '5YJ3E1EA3KF428848': { light: '#ea580c', dark: '#fb923c' }, // orange
   '7SAYGDEEXPA069171': { light: '#0284c7', dark: '#38bdf8' }, // sky
+};
+
+/** The house-load series. Distinct from both the ink of solar and the cars' colors. */
+export const HOUSE_COLORS: VehicleColors = {
+  light: '#0f766e',
+  dark: '#2dd4bf',
 };
 
 export const FALLBACK_VEHICLE_COLORS: VehicleColors = {
