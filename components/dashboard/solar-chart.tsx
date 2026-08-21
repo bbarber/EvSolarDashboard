@@ -3,6 +3,7 @@
 import {
   CONTROLLER_TIME_ZONE,
   HOUSE_COLORS,
+  NET_COLORS,
   vehicleColors,
   vehicleName,
   type ChargeReadingRow,
@@ -54,6 +55,7 @@ interface Selection {
   hour: number;
   solar: Pt | null;
   house: Pt | null;
+  net: Pt | null;
   cars: { vin: string; pt: Pt }[];
 }
 
@@ -144,6 +146,20 @@ export function SolarChart({
     [readings, hourOf],
   );
 
+  // Net grid flow: what the house needs beyond what the roof is making. Positive means importing,
+  // negative means exporting. house is already reported minus half of production, so subtracting
+  // production again lands on reported - 1.5 x production.
+  const netPts = useMemo<Pt[]>(
+    () =>
+      readings
+        .filter((r) => r.house_watts != null)
+        .map((r) => ({
+          x: hourOf(r.reading_at),
+          y: Math.max((r.house_watts as number) - 0.5 * r.watts, 0) - r.watts,
+        })),
+    [readings, hourOf],
+  );
+
   // One series per vehicle, in the order each first appears today.
   const carSeries = useMemo<CarSeries[]>(() => {
     const byVin = new Map<string, Pt[]>();
@@ -187,6 +203,7 @@ export function SolarChart({
 
   const [showSolar, setShowSolar] = useState(true);
   const [showHouse, setShowHouse] = useState(true);
+  const [showNet, setShowNet] = useState(true);
   const [hiddenCars, setHiddenCars] = useState<Record<string, boolean>>({});
   const carShown = useCallback((vin: string) => !hiddenCars[vin], [hiddenCars]);
 
@@ -209,28 +226,39 @@ export function SolarChart({
   // value. Steps of 1000 W and 4 A pair naturally (4000 W against 16 A, the
   // array's working range against the connector's), and both scales grow in
   // whole divisions together rather than independently.
-  const { maxWatts, maxAmps, axisTicks } = useMemo(() => {
+  const { minWatts, maxWatts, minAmps, maxAmps, axisTicks } = useMemo(() => {
     const WATT_STEP = 1000;
     const AMP_STEP = 4;
     const peakWatts = Math.max(
       4000,
       ...(showSolar ? solarPts.map((p) => p.y) : []),
       ...(showHouse ? housePts.map((p) => p.y) : []),
+      ...(showNet ? netPts.map((p) => p.y) : []),
     );
     const peakAmps = Math.max(
       16,
       ...shownCars.flatMap((s) => s.pts.map((p) => p.y)),
     );
-    const divisions = Math.max(
+    // Only the net can go below zero, and only when the house is exporting. The floor is dropped
+    // just far enough to hold it, in whole divisions, so a day that never exports keeps a baseline
+    // sitting flat on zero rather than reserving empty space under the plot.
+    const deepestExport = Math.min(
+      0,
+      ...(showNet ? netPts.map((p) => p.y) : []),
+    );
+    const above = Math.max(
       Math.ceil(peakWatts / WATT_STEP),
       Math.ceil(peakAmps / AMP_STEP),
     );
+    const below = Math.ceil(-deepestExport / WATT_STEP);
     return {
-      maxWatts: divisions * WATT_STEP,
-      maxAmps: divisions * AMP_STEP,
-      axisTicks: divisions + 1,
+      minWatts: -below * WATT_STEP,
+      maxWatts: above * WATT_STEP,
+      minAmps: -below * AMP_STEP,
+      maxAmps: above * AMP_STEP,
+      axisTicks: above + below + 1,
     };
-  }, [solarPts, housePts, shownCars, showSolar, showHouse]);
+  }, [solarPts, housePts, netPts, shownCars, showSolar, showHouse, showNet]);
 
   // Track the theme so canvas colors — which cannot come from CSS classes —
   // follow the toggle and the OS setting.
@@ -303,6 +331,14 @@ export function SolarChart({
         if (sel.solar) {
           dot(sel.solar.x, sel.solar.y, 'y', cssHsl('--foreground'));
         }
+        if (sel.net) {
+          dot(
+            sel.net.x,
+            sel.net.y,
+            'y',
+            isDark ? NET_COLORS.dark : NET_COLORS.light,
+          );
+        }
         if (sel.house) {
           dot(
             sel.house.x,
@@ -329,6 +365,7 @@ export function SolarChart({
     const ink = cssHsl('--foreground');
     const muted = cssHsl('--muted-foreground');
     const grid = cssHsl('--muted-foreground', 0.2);
+    const zeroLine = cssHsl('--muted-foreground', 0.55);
 
     const datasets: ChartDataset<'line', Pt[]>[] = [];
     if (showSolar) {
@@ -350,6 +387,18 @@ export function SolarChart({
         label: 'House',
         data: housePts,
         borderColor: isDark ? HOUSE_COLORS.dark : HOUSE_COLORS.light,
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        tension: 0,
+        yAxisID: 'y',
+      });
+    }
+    if (showNet && netPts.length > 0) {
+      datasets.push({
+        label: 'Net',
+        data: netPts,
+        borderColor: isDark ? NET_COLORS.dark : NET_COLORS.light,
         borderWidth: 2,
         pointRadius: 0,
         pointHoverRadius: 0,
@@ -398,7 +447,7 @@ export function SolarChart({
           },
           y: {
             position: 'left',
-            min: 0,
+            min: minWatts,
             max: maxWatts,
             title: {
               display: true,
@@ -411,12 +460,17 @@ export function SolarChart({
               color: muted,
               font: { size: 10 },
             },
-            grid: { color: grid },
+            grid: {
+              // Zero is the line that matters once the net is drawn: above it the house is
+              // importing, below it exporting.
+              color: (ctx) => (ctx.tick?.value === 0 ? zeroLine : grid),
+              lineWidth: (ctx) => (ctx.tick?.value === 0 ? 1.5 : 1),
+            },
             border: { display: false },
           },
           yAmps: {
             position: 'right',
-            min: 0,
+            min: minAmps,
             max: maxAmps,
             title: {
               display: true,
@@ -441,9 +495,13 @@ export function SolarChart({
   }, [
     solarPts,
     housePts,
+    netPts,
     shownCars,
     showSolar,
     showHouse,
+    showNet,
+    minWatts,
+    minAmps,
     maxWatts,
     maxAmps,
     axisTicks,
@@ -499,6 +557,13 @@ export function SolarChart({
         at <= housePts[housePts.length - 1].x + 0.25;
       const house = inHouse ? nearest(housePts, at) : null;
 
+      const inNet =
+        showNet &&
+        netPts.length > 0 &&
+        at >= netPts[0].x - 0.25 &&
+        at <= netPts[netPts.length - 1].x + 0.25;
+      const net = inNet ? nearest(netPts, at) : null;
+
       // The car line is stepped: its value at a moment is the last sample at or
       // before it, held. Drawing the dot on the sample's own time would fling
       // the marker hours away from the crosshair once a session ended — the
@@ -516,13 +581,13 @@ export function SolarChart({
         })
         .filter((c): c is { vin: string; pt: Pt } => c != null);
 
-      if (!solarSample && !house && cars.length === 0) {
+      if (!solarSample && !house && !net && cars.length === 0) {
         setSelection(null);
         return;
       }
-      setSelection({ hour: at, solar: solarSample, house, cars });
+      setSelection({ hour: at, solar: solarSample, house, net, cars });
     },
-    [solarPts, housePts, shownCars, showSolar, showHouse],
+    [solarPts, housePts, netPts, shownCars, showSolar, showHouse, showNet],
   );
 
   const onPointer = (e: React.PointerEvent<HTMLCanvasElement>) =>
@@ -561,6 +626,23 @@ export function SolarChart({
                 aria-hidden
               />
               House
+            </button>
+          )}
+          {netPts.length > 0 && (
+            <button
+              type="button"
+              aria-pressed={showNet}
+              onClick={() => setShowNet((v) => !v)}
+              className={chip(showNet)}
+            >
+              <i
+                className="h-2 w-3 rounded-sm"
+                style={{
+                  backgroundColor: isDark ? NET_COLORS.dark : NET_COLORS.light,
+                }}
+                aria-hidden
+              />
+              Net
             </button>
           )}
           {carSeries.map((s) => {
@@ -613,6 +695,16 @@ export function SolarChart({
                 }}
               >
                 house {Math.round(selection.house.y).toLocaleString('en-US')} W
+              </span>
+            )}
+            {selection.net && (
+              <span
+                className="font-semibold"
+                style={{ color: isDark ? NET_COLORS.dark : NET_COLORS.light }}
+              >
+                {selection.net.y >= 0 ? 'import' : 'export'}{' '}
+                {Math.abs(Math.round(selection.net.y)).toLocaleString('en-US')}{' '}
+                W
               </span>
             )}
             {selection.cars.map((c) => {

@@ -88,9 +88,15 @@ export const HOUSE_COLORS: VehicleColors = {
   dark: '#2dd4bf',
 };
 
-export const FALLBACK_VEHICLE_COLORS: VehicleColors = {
+/** Net grid flow: import positive, export negative. */
+export const NET_COLORS: VehicleColors = {
   light: '#7c3aed',
   dark: '#a78bfa',
+};
+
+export const FALLBACK_VEHICLE_COLORS: VehicleColors = {
+  light: '#be123c',
+  dark: '#fb7185',
 };
 
 export function vehicleColors(vin: string): VehicleColors {
