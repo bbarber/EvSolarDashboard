@@ -226,7 +226,7 @@ export function SolarChart({
   // value. Steps of 1000 W and 4 A pair naturally (4000 W against 16 A, the
   // array's working range against the connector's), and both scales grow in
   // whole divisions together rather than independently.
-  const { minWatts, maxWatts, minAmps, maxAmps, axisTicks } = useMemo(() => {
+  const { minWatts, maxWatts, minAmps, maxAmps } = useMemo(() => {
     const WATT_STEP = 1000;
     const AMP_STEP = 4;
     const peakWatts = Math.max(
@@ -256,7 +256,6 @@ export function SolarChart({
       maxWatts: above * WATT_STEP,
       minAmps: -below * AMP_STEP,
       maxAmps: above * AMP_STEP,
-      axisTicks: above + below + 1,
     };
   }, [solarPts, housePts, netPts, shownCars, showSolar, showHouse, showNet]);
 
@@ -456,6 +455,10 @@ export function SolarChart({
               font: { size: 10 },
             },
             ticks: {
+              // Pinned rather than auto-chosen: 1000 W per 4 A is what keeps the two axes'
+              // gridlines on top of each other, and Chart.js would otherwise pick its own step
+              // once the range grows and silently break the alignment.
+              stepSize: 1000,
               callback: (v) => Number(v).toLocaleString('en-US'),
               color: muted,
               font: { size: 10 },
@@ -478,7 +481,16 @@ export function SolarChart({
               color: muted,
               font: { size: 10 },
             },
-            ticks: { color: muted, font: { size: 10 }, stepSize: 4 },
+            ticks: {
+              color: muted,
+              font: { size: 10 },
+              // 4 A per 1000 W keeps this axis's gridlines on the watts axis's.
+              stepSize: 4,
+              // The negative half exists only to hold that alignment when the net line goes below
+              // zero. A car cannot draw a negative current, so those labels are left blank rather
+              // than printed as -8 A.
+              callback: (v) => (Number(v) < 0 ? '' : String(Number(v))),
+            },
             grid: { display: false },
             border: { display: false },
           },
@@ -504,7 +516,6 @@ export function SolarChart({
     minAmps,
     maxWatts,
     maxAmps,
-    axisTicks,
     isDark,
     markerPlugin,
   ]);
