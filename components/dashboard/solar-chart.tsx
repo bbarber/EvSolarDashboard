@@ -117,6 +117,32 @@ export function SolarChart({
     [readings, hourOf],
   );
 
+  // What the cars were drawing at a given moment, summed. Each car's samples hold forward until
+  // the next one — the same stepped reading the car lines are drawn with — so a session that ended
+  // reports 0 rather than its last non-zero current.
+  const carWattsAt = useMemo(() => {
+    const byVin = new Map<string, { h: number; w: number }[]>();
+    for (const r of charge) {
+      const pt = { h: hourOf(r.reading_at), w: r.watts };
+      const pts = byVin.get(r.vin);
+      if (pts) pts.push(pt);
+      else byVin.set(r.vin, [pt]);
+    }
+    for (const pts of byVin.values()) pts.sort((a, b) => a.h - b.h);
+    return (hour: number) => {
+      let total = 0;
+      for (const pts of byVin.values()) {
+        let held = 0;
+        for (const p of pts) {
+          if (p.h <= hour + 1e-6) held = p.w;
+          else break;
+        }
+        total += held;
+      }
+      return total;
+    };
+  }, [charge, hourOf]);
+
   // The house's own draw, on the same watts axis so it reads directly against solar: above the
   // solar line means the shortfall came from the grid. Readings from before the consumption meter
   // was polled carry null and are simply absent rather than drawn as zero.
@@ -132,6 +158,15 @@ export function SolarChart({
   // negative, the idle morning lands at 116-228 W (matching the owner's own estimate of ~200 W),
   // and the daily total is 16.5 kWh.
   //
+  // The same one-leg reading halves every 240 V load, not just the solar backfeed — so a charging
+  // car also arrives at half strength. Proven against its known draw: subtracting the car's full
+  // wattage from this line leaves -1049 W, which is impossible, while subtracting half leaves
+  // 302 W, the same idle baseline the house shows with nothing plugged in. Half of the car's
+  // logged draw is added back.
+  //
+  // Other 240 V appliances — dryer, oven, AC — stay halved. Nothing in this data separates them
+  // from 120 V load, and inventing a split would be worse than understating them.
+  //
   // Deliberately applied here rather than at write time. An earlier attempt stored a derived
   // figure and a wrong model went into the history with it; the raw meter reading is what gets
   // recorded, and the interpretation lives at the one place it is drawn.
@@ -139,26 +174,27 @@ export function SolarChart({
     () =>
       readings
         .filter((r) => r.house_watts != null)
-        .map((r) => ({
-          x: hourOf(r.reading_at),
-          y: Math.max((r.house_watts as number) - 0.5 * r.watts, 0),
-        })),
-    [readings, hourOf],
+        .map((r) => {
+          const x = hourOf(r.reading_at);
+          return {
+            x,
+            y: Math.max(
+              (r.house_watts as number) - 0.5 * r.watts + 0.5 * carWattsAt(x),
+              0,
+            ),
+          };
+        }),
+    [readings, hourOf, carWattsAt],
   );
 
   // Net grid flow: what the house needs beyond what the roof is making. Positive means importing,
-  // negative means exporting. house is already reported minus half of production, so subtracting
-  // production again lands on reported - 1.5 x production.
-  const netPts = useMemo<Pt[]>(
-    () =>
-      readings
-        .filter((r) => r.house_watts != null)
-        .map((r) => ({
-          x: hourOf(r.reading_at),
-          y: Math.max((r.house_watts as number) - 0.5 * r.watts, 0) - r.watts,
-        })),
-    [readings, hourOf],
-  );
+  // negative means exporting. Derived from the corrected house figure rather than recomputed, so
+  // it can never drift from the line above it — before the car's missing half was added back this
+  // reported an export through the whole of a charging window that was actually importing.
+  const netPts = useMemo<Pt[]>(() => {
+    const solarAt = new Map(solarPts.map((p) => [p.x, p.y]));
+    return housePts.map((p) => ({ x: p.x, y: p.y - (solarAt.get(p.x) ?? 0) }));
+  }, [housePts, solarPts]);
 
   // One series per vehicle, in the order each first appears today.
   const carSeries = useMemo<CarSeries[]>(() => {
@@ -383,7 +419,7 @@ export function SolarChart({
     }
     if (showHouse && housePts.length > 0) {
       datasets.push({
-        label: 'House',
+        label: 'House (net)',
         data: housePts,
         borderColor: isDark ? HOUSE_COLORS.dark : HOUSE_COLORS.light,
         borderWidth: 2,
@@ -636,7 +672,7 @@ export function SolarChart({
                 }}
                 aria-hidden
               />
-              House
+              House (net)
             </button>
           )}
           {netPts.length > 0 && (
