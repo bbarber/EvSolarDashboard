@@ -69,6 +69,35 @@ function cssHsl(name: string, alpha = 1): string {
   return alpha === 1 ? `hsl(${raw})` : `hsl(${raw} / ${alpha})`;
 }
 
+function KeyRow({
+  swatch,
+  name,
+  unit,
+  text,
+}: {
+  swatch: string;
+  name: string;
+  unit: string;
+  text: string;
+}) {
+  return (
+    <div className="flex gap-2.5">
+      <span
+        className="mt-[7px] h-[3px] w-4 shrink-0 rounded-full"
+        style={{ backgroundColor: swatch }}
+        aria-hidden
+      />
+      <div className="min-w-0">
+        <dt className="inline font-medium">{name}</dt>
+        <dd className="inline text-muted-foreground">
+          {' '}
+          <span className="tabular-nums">({unit})</span> — {text}
+        </dd>
+      </div>
+    </div>
+  );
+}
+
 function nearest(pts: Pt[], hour: number): Pt | null {
   let best: Pt | null = null;
   let bestD = Infinity;
@@ -640,6 +669,10 @@ export function SolarChart({
   const onPointer = (e: React.PointerEvent<HTMLCanvasElement>) =>
     select(e.clientX);
 
+  // Solar is drawn in the theme's own foreground colour, so its swatch uses the class rather than
+  // a literal — the only series whose colour is not a fixed value.
+  const cssVarSwatch = 'currentColor';
+
   const chip = (on: boolean) =>
     `flex items-center gap-1.5 rounded border px-2 py-0.5 text-xs transition-opacity ${on ? '' : 'opacity-40 line-through'}`;
 
@@ -792,6 +825,42 @@ export function SolarChart({
             No readings yet today — polling runs 9 AM–6 PM
           </p>
         )}
+
+      {/* What each line means. Kept beside the chart rather than in a help page: the
+          series are only obvious once you already know the system. Swatches read the same
+          colour constants the canvas draws with, so the key cannot drift from the plot. */}
+      <dl className="mt-4 space-y-2 border-t pt-3 text-xs">
+        <KeyRow
+          swatch={cssVarSwatch}
+          name="Solar"
+          unit="watts"
+          text="What the roof is producing."
+        />
+        <KeyRow
+          swatch={isDark ? HOUSE_COLORS.dark : HOUSE_COLORS.light}
+          name="House (net)"
+          unit="watts"
+          text="What the house is using, car charging included."
+        />
+        <KeyRow
+          swatch={isDark ? NET_COLORS.dark : NET_COLORS.light}
+          name="Net"
+          unit="watts"
+          text="House minus solar. Above zero you are buying from the grid; below zero you are sending it back."
+        />
+        {carSeries.map((s) => {
+          const colors = vehicleColors(s.vin);
+          return (
+            <KeyRow
+              key={s.vin}
+              swatch={isDark ? colors.dark : colors.light}
+              name={vehicleName(s.vin)}
+              unit="amps"
+              text="Charge current, held until it changes."
+            />
+          );
+        })}
+      </dl>
 
       <figcaption className="sr-only">
         Solar production in watts and each car&apos;s charge current in amps
