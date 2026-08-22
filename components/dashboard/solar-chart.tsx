@@ -2,7 +2,6 @@
 
 import {
   CONTROLLER_TIME_ZONE,
-  HOUSE_COLORS,
   NET_COLORS,
   vehicleColors,
   vehicleName,
@@ -54,7 +53,6 @@ interface CarSeries {
 interface Selection {
   hour: number;
   solar: Pt | null;
-  house: Pt | null;
   net: Pt | null;
   cars: { vin: string; pt: Pt }[];
 }
@@ -187,6 +185,9 @@ export function SolarChart({
   // negative, the idle morning lands at 116-228 W (matching the owner's own estimate of ~200 W),
   // and the daily total is 16.5 kWh.
   //
+  // Not drawn: Net is what gets plotted, and this is the figure it is derived from. Kept because
+  // that derivation is the whole reason the net line can be trusted.
+  //
   // The same one-leg reading halves every 240 V load, not just the solar backfeed — so a charging
   // car also arrives at half strength. Proven against its known draw: subtracting the car's full
   // wattage from this line leaves -1049 W, which is impossible, while subtracting half leaves
@@ -267,7 +268,6 @@ export function SolarChart({
   }, [isToday]);
 
   const [showSolar, setShowSolar] = useState(true);
-  const [showHouse, setShowHouse] = useState(true);
   const [showNet, setShowNet] = useState(true);
   const [hiddenCars, setHiddenCars] = useState<Record<string, boolean>>({});
   const carShown = useCallback((vin: string) => !hiddenCars[vin], [hiddenCars]);
@@ -297,7 +297,6 @@ export function SolarChart({
     const peakWatts = Math.max(
       4000,
       ...(showSolar ? solarPts.map((p) => p.y) : []),
-      ...(showHouse ? housePts.map((p) => p.y) : []),
       ...(showNet ? netPts.map((p) => p.y) : []),
     );
     const peakAmps = Math.max(
@@ -322,7 +321,7 @@ export function SolarChart({
       minAmps: -below * AMP_STEP,
       maxAmps: above * AMP_STEP,
     };
-  }, [solarPts, housePts, netPts, shownCars, showSolar, showHouse, showNet]);
+  }, [solarPts, netPts, shownCars, showSolar, showNet]);
 
   // Track the theme so canvas colors — which cannot come from CSS classes —
   // follow the toggle and the OS setting.
@@ -403,14 +402,6 @@ export function SolarChart({
             isDark ? NET_COLORS.dark : NET_COLORS.light,
           );
         }
-        if (sel.house) {
-          dot(
-            sel.house.x,
-            sel.house.y,
-            'y',
-            isDark ? HOUSE_COLORS.dark : HOUSE_COLORS.light,
-          );
-        }
         for (const c of sel.cars) {
           const colors = vehicleColors(c.vin);
           dot(c.pt.x, c.pt.y, 'yAmps', isDark ? colors.dark : colors.light);
@@ -439,18 +430,6 @@ export function SolarChart({
         borderColor: ink,
         backgroundColor: cssHsl('--foreground', 0.1),
         fill: 'origin',
-        borderWidth: 2,
-        pointRadius: 0,
-        pointHoverRadius: 0,
-        tension: 0,
-        yAxisID: 'y',
-      });
-    }
-    if (showHouse && housePts.length > 0) {
-      datasets.push({
-        label: 'House (net)',
-        data: housePts,
-        borderColor: isDark ? HOUSE_COLORS.dark : HOUSE_COLORS.light,
         borderWidth: 2,
         pointRadius: 0,
         pointHoverRadius: 0,
@@ -571,11 +550,9 @@ export function SolarChart({
     };
   }, [
     solarPts,
-    housePts,
     netPts,
     shownCars,
     showSolar,
-    showHouse,
     showNet,
     minWatts,
     minAmps,
@@ -626,13 +603,6 @@ export function SolarChart({
 
       // House load shares the solar reading's timestamp — both come from one
       // meter call — so it is reported at the snapped time, not the raw pointer.
-      const inHouse =
-        showHouse &&
-        housePts.length > 0 &&
-        at >= housePts[0].x - 0.25 &&
-        at <= housePts[housePts.length - 1].x + 0.25;
-      const house = inHouse ? nearest(housePts, at) : null;
-
       const inNet =
         showNet &&
         netPts.length > 0 &&
@@ -657,13 +627,13 @@ export function SolarChart({
         })
         .filter((c): c is { vin: string; pt: Pt } => c != null);
 
-      if (!solarSample && !house && !net && cars.length === 0) {
+      if (!solarSample && !net && cars.length === 0) {
         setSelection(null);
         return;
       }
-      setSelection({ hour: at, solar: solarSample, house, net, cars });
+      setSelection({ hour: at, solar: solarSample, net, cars });
     },
-    [solarPts, housePts, netPts, shownCars, showSolar, showHouse, showNet],
+    [solarPts, netPts, shownCars, showSolar, showNet],
   );
 
   const onPointer = (e: React.PointerEvent<HTMLCanvasElement>) =>
@@ -689,25 +659,6 @@ export function SolarChart({
             <i className="h-2 w-3 rounded-sm bg-foreground" aria-hidden />
             Solar
           </button>
-          {housePts.length > 0 && (
-            <button
-              type="button"
-              aria-pressed={showHouse}
-              onClick={() => setShowHouse((v) => !v)}
-              className={chip(showHouse)}
-            >
-              <i
-                className="h-2 w-3 rounded-sm"
-                style={{
-                  backgroundColor: isDark
-                    ? HOUSE_COLORS.dark
-                    : HOUSE_COLORS.light,
-                }}
-                aria-hidden
-              />
-              House (net)
-            </button>
-          )}
           {netPts.length > 0 && (
             <button
               type="button"
@@ -767,16 +718,6 @@ export function SolarChart({
                 {Math.round(selection.solar.y).toLocaleString('en-US')} W
               </span>
             )}
-            {selection.house && (
-              <span
-                className="font-semibold"
-                style={{
-                  color: isDark ? HOUSE_COLORS.dark : HOUSE_COLORS.light,
-                }}
-              >
-                house {Math.round(selection.house.y).toLocaleString('en-US')} W
-              </span>
-            )}
             {selection.net && (
               <span
                 className="font-semibold"
@@ -819,7 +760,7 @@ export function SolarChart({
       </div>
 
       {solarPts.length === 0 &&
-        housePts.length === 0 &&
+        netPts.length === 0 &&
         carSeries.length === 0 && (
           <p className="pt-2 text-center text-sm text-muted-foreground">
             No readings yet today — polling runs 9 AM–6 PM
@@ -835,12 +776,6 @@ export function SolarChart({
           name="Solar"
           unit="watts"
           text="What the roof is producing."
-        />
-        <KeyRow
-          swatch={isDark ? HOUSE_COLORS.dark : HOUSE_COLORS.light}
-          name="House (net)"
-          unit="watts"
-          text="What the house is using, car charging included."
         />
         <KeyRow
           swatch={isDark ? NET_COLORS.dark : NET_COLORS.light}
