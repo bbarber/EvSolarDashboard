@@ -6,6 +6,7 @@ import { SolarChart } from '@/components/dashboard/solar-chart';
 import { VehicleCard } from '@/components/dashboard/vehicle-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ThemeSwitcher } from '@/components/theme-switcher';
+import { rangeAddedByVin } from '@/lib/data/range-added';
 import { controllerDay, fetchDay, isValidDay } from '@/lib/data/today';
 import { SITE_NAME } from '@/lib/site';
 import { createClient } from '@/lib/supabase/server';
@@ -69,7 +70,9 @@ async function DashboardContent({
   const day = asked && isValidDay(asked) && asked <= today ? asked : today;
   const isToday = day === today;
 
-  const { vehicles, solar, charge, events, errors } = await fetchDay(day);
+  const { vehicles, solar, charge, ranges, events, errors } =
+    await fetchDay(day);
+  const rangeAdded = rangeAddedByVin(ranges);
   const latest = solar.at(-1);
 
   return (
@@ -89,7 +92,13 @@ async function DashboardContent({
             </CardContent>
           </Card>
         ) : (
-          vehicles.map((v) => <VehicleCard key={v.vin} vehicle={v} />)
+          vehicles.map((v) => (
+            <VehicleCard
+              key={v.vin}
+              vehicle={v}
+              rangeAdded={rangeAdded.get(v.vin)}
+            />
+          ))
         )}
       </section>
 

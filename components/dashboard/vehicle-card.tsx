@@ -14,7 +14,14 @@ function timeIn(tz: string, iso: string) {
   }).format(new Date(iso));
 }
 
-export function VehicleCard({ vehicle }: { vehicle: VehicleStatusRow }) {
+export function VehicleCard({
+  vehicle,
+  rangeAdded,
+}: {
+  vehicle: VehicleStatusRow;
+  /** Rated range added today, in the car's own display unit. Absent when it added none. */
+  rangeAdded?: number;
+}) {
   const name = vehicleName(vehicle.vin);
   const charging = vehicle.charging_state === 'Charging';
 
@@ -46,6 +53,10 @@ export function VehicleCard({ vehicle }: { vehicle: VehicleStatusRow }) {
           {charging && vehicle.charge_amps != null
             ? `${vehicle.charge_amps} A`
             : '—'}
+        </span>
+        <span className="text-muted-foreground">Range added</span>
+        <span className="text-right font-medium">
+          {rangeAdded != null ? `+${Math.round(rangeAdded)} mi` : '—'}
         </span>
         <span className="text-muted-foreground">Session</span>
         <span className="text-right font-medium">{vehicle.session}</span>

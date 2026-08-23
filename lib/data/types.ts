@@ -45,6 +45,12 @@ export interface EventRow {
   reason: string | null;
 }
 
+export interface RangeReadingRow {
+  vin: string;
+  reading_at: string;
+  miles: number;
+}
+
 export interface ChargeReadingRow {
   vin: string;
   reading_at: string;

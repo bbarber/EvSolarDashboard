@@ -268,7 +268,9 @@ export function SolarChart({
   }, [isToday]);
 
   const [showSolar, setShowSolar] = useState(true);
-  const [showNet, setShowNet] = useState(true);
+  // Off by default: the net line is the one that answers "am I buying or selling", which is a
+  // question you go looking for rather than one you want answered on every glance.
+  const [showNet, setShowNet] = useState(false);
   const [hiddenCars, setHiddenCars] = useState<Record<string, boolean>>({});
   const carShown = useCallback((vin: string) => !hiddenCars[vin], [hiddenCars]);
 

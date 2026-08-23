@@ -102,19 +102,40 @@ export type Database = {
         };
         Relationships: [];
       };
+      range_readings: {
+        Row: {
+          miles: number;
+          reading_at: string;
+          vin: string;
+        };
+        Insert: {
+          miles: number;
+          reading_at: string;
+          vin: string;
+        };
+        Update: {
+          miles?: number;
+          reading_at?: string;
+          vin?: string;
+        };
+        Relationships: [];
+      };
       solar_readings: {
         Row: {
           amps: number;
+          house_watts: number | null;
           reading_at: string;
           watts: number;
         };
         Insert: {
           amps: number;
+          house_watts?: number | null;
           reading_at: string;
           watts: number;
         };
         Update: {
           amps?: number;
+          house_watts?: number | null;
           reading_at?: string;
           watts?: number;
         };

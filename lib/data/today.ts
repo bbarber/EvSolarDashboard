@@ -4,6 +4,7 @@ import {
   CONTROLLER_TIME_ZONE,
   type ChargeReadingRow,
   type EventRow,
+  type RangeReadingRow,
   type SolarReadingRow,
   type VehicleStatusRow,
 } from '@/lib/data/types';
@@ -52,7 +53,7 @@ export async function fetchDay(day: string = controllerDay()) {
   const since = startOfControllerDay(day).toISOString();
   const until = startOfControllerDay(shiftDay(day, 1)).toISOString();
 
-  const [status, solar, charge, events] = await Promise.all([
+  const [status, solar, charge, ranges, events] = await Promise.all([
     supabase.from('vehicle_status').select('*').order('vin'),
     supabase
       .from('solar_readings')
@@ -62,6 +63,12 @@ export async function fetchDay(day: string = controllerDay()) {
       .order('reading_at'),
     supabase
       .from('charge_readings')
+      .select('*')
+      .gte('reading_at', since)
+      .lt('reading_at', until)
+      .order('reading_at'),
+    supabase
+      .from('range_readings')
       .select('*')
       .gte('reading_at', since)
       .lt('reading_at', until)
@@ -79,10 +86,15 @@ export async function fetchDay(day: string = controllerDay()) {
     vehicles: (status.data ?? []) as VehicleStatusRow[],
     solar: (solar.data ?? []) as SolarReadingRow[],
     charge: (charge.data ?? []) as ChargeReadingRow[],
+    ranges: (ranges.data ?? []) as RangeReadingRow[],
     events: (events.data ?? []) as EventRow[],
-    errors: [status.error, solar.error, charge.error, events.error].filter(
-      Boolean,
-    ),
+    errors: [
+      status.error,
+      solar.error,
+      charge.error,
+      ranges.error,
+      events.error,
+    ].filter(Boolean),
   };
 }
 
