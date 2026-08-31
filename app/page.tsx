@@ -1,11 +1,13 @@
 import { AuthButton } from '@/components/auth-button';
 import { DayNav } from '@/components/dashboard/day-nav';
 import { EventsList } from '@/components/dashboard/events-list';
+import { PauseControls } from '@/components/dashboard/pause-controls';
 import { RefreshButton } from '@/components/dashboard/refresh-button';
 import { SolarChart } from '@/components/dashboard/solar-chart';
 import { VehicleCard } from '@/components/dashboard/vehicle-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ThemeSwitcher } from '@/components/theme-switcher';
+import { fetchPauseState } from '@/lib/data/pause';
 import { rangeAddedByVin } from '@/lib/data/range-added';
 import { controllerDay, fetchDay, isValidDay } from '@/lib/data/today';
 import { SITE_NAME } from '@/lib/site';
@@ -70,8 +72,8 @@ async function DashboardContent({
   const day = asked && isValidDay(asked) && asked <= today ? asked : today;
   const isToday = day === today;
 
-  const { vehicles, solar, charge, ranges, events, errors } =
-    await fetchDay(day);
+  const [{ vehicles, solar, charge, ranges, events, errors }, pauseState] =
+    await Promise.all([fetchDay(day), fetchPauseState()]);
   const rangeAdded = rangeAddedByVin(ranges);
   const latest = solar.at(-1);
 
@@ -82,6 +84,17 @@ async function DashboardContent({
           Some data failed to load; showing what arrived.
         </p>
       )}
+
+      {/* Above the cars on purpose: whether the system is allowed to act at all is the first
+          thing worth knowing, and it frames everything below it. */}
+      <Card>
+        <CardContent className="pt-6">
+          <PauseControls
+            paused={pauseState.paused}
+            pausedUntil={pauseState.pausedUntil?.toISOString() ?? null}
+          />
+        </CardContent>
+      </Card>
 
       <section className="grid gap-4 sm:grid-cols-2">
         {vehicles.length === 0 ? (
