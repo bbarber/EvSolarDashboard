@@ -55,7 +55,10 @@ app runs on the host. Devs bring their own hosted Supabase project for staging/p
 - **Types**: `pnpm run typecheck` (`tsc --noEmit`) is the source of truth for types — lint
   and the test runner do not type-check.
 - **Tests**: Vitest (`*.test.ts(x)`, unit/component, no real Supabase) and Playwright
-  (`e2e/`, e2e + axe a11y, desktop + iPhone). Keep the runners' files separate. **Integration
+  (`e2e/`, e2e + axe a11y, desktop + iPhone). **Playwright no longer runs in CI** — it needed a
+  local Supabase stack per run and took 4 minutes against ~50 seconds for everything else. Run it
+  yourself with `pnpm run test:e2e` when touching auth, the proxy guard, or anything that only
+  breaks in a browser. Keep the runners' files separate. **Integration
   tests** (`*.integration.test.ts`) run against the real local Supabase Docker stack via
   `pnpm run test:integration` — local-only, guarded to `127.0.0.1`. See
   `documentation/testing.md`.
